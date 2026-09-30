@@ -299,4 +299,29 @@ describe("AdvisorEngine", () => {
     expect(engine.status("s1").lastOutcome).toBe("1 notes")
     engine.dispose()
   })
+
+  test("a note never resumes an idle session", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[{"severity":"blocker","note":"Stop and fix the schema"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    await engine.review("s1", false)
+
+    expect(host.injections).toHaveLength(1)
+    expect(host.injections[0]!.delivery).toBe("queue")
+    expect(host.injections[0]!.resume).toBe(false)
+    engine.dispose()
+  })
+
+  test("a mid-turn concern steers the running turn", async () => {
+    const host = makeHost("/repo", [user, midwork])
+    host.responses.push('{"notes":[{"severity":"concern","note":"Check the guard"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    await engine.review("s1", true)
+
+    expect(host.injections[0]!.delivery).toBe("steer")
+    expect(host.injections[0]!.resume).toBe(true)
+    engine.dispose()
+  })
 })

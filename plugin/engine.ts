@@ -20,7 +20,7 @@ import {
 import { buildReviewPrompt, buildSystemPrompt, formatAdvisoryBatch, parseAdvisorReply } from "./prompts.ts"
 import type { AdvisorConfig, AdvisorSpec } from "./config.ts"
 import { DEFAULT_TOOLS } from "./config.ts"
-import { renderDelta, tailIsTerminalAnswer, type SessionMessage } from "./transcript.ts"
+import { renderDelta, type SessionMessage } from "./transcript.ts"
 import { runTool } from "./tools.ts"
 
 export interface ModelRef {
@@ -73,10 +73,8 @@ interface SessionState {
   seeded: boolean
   reviewedCount: number
   streaming: boolean
-  terminalAnswer: boolean
   completedTurns: number
   immuneTurnStart?: number
-  autoResumeSuppressed: boolean
   guards: Map<string, EmissionGuard>
   priorNotes: Map<string, string[]>
   reviewInProgress: boolean
@@ -139,9 +137,7 @@ export class AdvisorEngine {
         seeded: false,
         reviewedCount: 0,
         streaming: false,
-        terminalAnswer: false,
         completedTurns: 0,
-        autoResumeSuppressed: false,
         guards: new Map(),
         priorNotes: new Map(),
         reviewInProgress: false,
@@ -196,7 +192,6 @@ export class AdvisorEngine {
     switch (type) {
       case "session.step.started": {
         state.streaming = true
-        state.autoResumeSuppressed = false
         return
       }
       case "session.step.ended": {
@@ -218,7 +213,6 @@ export class AdvisorEngine {
         return
       }
       case "session.execution.interrupted": {
-        state.autoResumeSuppressed = true
         state.streaming = false
         return
       }
@@ -263,7 +257,6 @@ export class AdvisorEngine {
     state.reviewInProgress = true
     try {
       const messages = await this.#host.listMessages(sessionID)
-      state.terminalAnswer = tailIsTerminalAnswer(messages)
       state.streaming = streaming
 
       // A new user message resets the per-turn steering cap.
@@ -406,8 +399,6 @@ export class AdvisorEngine {
       let channel = resolveChannel({
         severity,
         streaming,
-        terminalAnswerNoQueuedWork: state.terminalAnswer,
-        autoResumeSuppressed: state.autoResumeSuppressed,
         interruptImmuneTurnActive: immuneActive,
       })
       // Safety net: past the per-turn cap, a would-be steer becomes a queued

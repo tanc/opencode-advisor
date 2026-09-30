@@ -179,10 +179,6 @@ export interface ChannelInput {
   severity: Severity | undefined
   /** A run is actively streaming right now. */
   streaming: boolean
-  /** The settled tail is a terminal text answer with no queued work. */
-  terminalAnswerNoQueuedWork: boolean
-  /** A user deliberately interrupted; never auto-resume the stopped run. */
-  autoResumeSuppressed: boolean
   /** Inside the post-interrupt immune window. */
   interruptImmuneTurnActive: boolean
 }
@@ -190,18 +186,18 @@ export interface ChannelInput {
 /**
  * Resolve how a note reaches the primary.
  *
- * - `preserve` records a visible card and never starts a turn.
- * - `queue` waits for the next step boundary (non-interrupting).
- * - `steer` goes into the running turn, or wakes an idle agent.
+ * - `preserve` records the note for the next turn and never starts one.
+ * - `queue` waits for the next step boundary of a turn that is already running.
+ * - `steer` goes into the turn that is already running.
  *
- * A `blocker` may always steer. A terminal answer preserves non-blockers so a
- * completed turn is not restarted to restate itself; a mid-work yield lets a
- * `concern` steer. After a user interrupt nothing auto-resumes. Inside the
- * immune window further `concern` notes become `queue`.
+ * The invariant is that the reviewer never starts a turn: a note can only
+ * reach `steer`/`queue` while work is streaming, so an idle session is never
+ * woken and a completed turn is never restarted. While a turn runs a `concern`
+ * steers and a `blocker` always steers, `nit`s queue, and inside the
+ * post-interrupt immune window a non-blocker queues instead of steering.
  */
 export function resolveChannel(input: ChannelInput): DeliveryChannel {
-  if (input.autoResumeSuppressed && !input.streaming) return "preserve"
-  if (!input.streaming && input.terminalAnswerNoQueuedWork && input.severity !== "blocker") return "preserve"
+  if (!input.streaming) return "preserve"
   if (input.severity === "nit" || input.severity === undefined) return "queue"
   if (input.interruptImmuneTurnActive && input.severity !== "blocker") return "queue"
   return "steer"

@@ -67,30 +67,26 @@ describe("EmissionGuard", () => {
 
 describe("resolveChannel", () => {
   const base = {
-    streaming: false,
-    terminalAnswerNoQueuedWork: false,
-    autoResumeSuppressed: false,
+    streaming: true,
     interruptImmuneTurnActive: false,
   }
 
-  test("nits queue, concerns/blockers steer mid-work", () => {
-    expect(resolveChannel({ ...base, severity: "nit", streaming: true })).toBe("queue")
-    expect(resolveChannel({ ...base, severity: "concern", streaming: true })).toBe("steer")
-    expect(resolveChannel({ ...base, severity: "blocker", streaming: true })).toBe("steer")
+  test("the reviewer never starts a turn", () => {
+    for (const severity of ["blocker", "concern", "nit", undefined] as const) {
+      expect(resolveChannel({ ...base, streaming: false, severity })).toBe("preserve")
+    }
   })
 
-  test("a terminal answer preserves non-blockers", () => {
-    expect(resolveChannel({ ...base, severity: "concern", terminalAnswerNoQueuedWork: true })).toBe("preserve")
-    expect(resolveChannel({ ...base, severity: "blocker", terminalAnswerNoQueuedWork: true })).toBe("steer")
-  })
-
-  test("a user interrupt never auto-resumes", () => {
-    expect(resolveChannel({ ...base, severity: "blocker", autoResumeSuppressed: true })).toBe("preserve")
+  test("a running turn takes notes without restarting it", () => {
+    expect(resolveChannel({ ...base, severity: "concern" })).toBe("steer")
+    expect(resolveChannel({ ...base, severity: "blocker" })).toBe("steer")
+    expect(resolveChannel({ ...base, severity: "nit" })).toBe("queue")
+    expect(resolveChannel({ ...base, severity: undefined })).toBe("queue")
   })
 
   test("the immune window downgrades concerns but not blockers", () => {
-    expect(resolveChannel({ ...base, severity: "concern", streaming: true, interruptImmuneTurnActive: true })).toBe("queue")
-    expect(resolveChannel({ ...base, severity: "blocker", streaming: true, interruptImmuneTurnActive: true })).toBe("steer")
+    expect(resolveChannel({ ...base, severity: "concern", interruptImmuneTurnActive: true })).toBe("queue")
+    expect(resolveChannel({ ...base, severity: "blocker", interruptImmuneTurnActive: true })).toBe("steer")
   })
 })
 

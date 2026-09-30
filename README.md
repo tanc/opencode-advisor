@@ -26,10 +26,12 @@ user's request, not to obey it blindly.
   project directory and nothing is ever written.
 - **Grades** each note `nit` / `concern` / `blocker` and routes it:
   - `nit` — a non-interrupting aside at the next step boundary.
-  - `concern` — steers a running turn; a late note after a completed answer is
-    preserved as a visible card instead of re-waking the agent.
-  - `blocker` — may steer and wake the agent even after a nominally completed
-    answer.
+  - `concern` — steers the turn that is already running.
+  - `blocker` — steers the running turn and is exempt from the immune window.
+
+  The reviewer never starts a turn: while nothing is streaming every grade is
+  preserved for the next turn, so an idle session is never woken and a completed
+  answer is never restarted.
 - **Filters noise.** Duplicates, content-free self-talk (`"Stop."`, `"LGTM"`,
   `"No issue; continue."`), and over-budget notes are dropped before they reach
   the transcript. Severity escalations (`nit` → `concern` → `blocker`) are
@@ -241,8 +243,9 @@ request waits up to 30 seconds for it to catch up.
   reviewer for routine work, or leave it off.
 - Silence is the default outcome: the prompt tells the reviewer to advise only on
   concrete technical risk, and the guard drops noise and repeats in code.
-- After a user interrupt the advisor never auto-resumes the stopped run; notes
-  are preserved as visible cards for the next resume.
+- The reviewer never starts a turn. A note can only interrupt work that is
+  already streaming; on an idle or settled session every grade is preserved for
+  the next turn instead of resuming the agent.
 - After a steering note, `immuneTurns` downgrades further concerns to queued
   notes. A blocker is exempt.
 - A per-user-turn steering cap (4) is a final safety net against loops.
@@ -253,13 +256,12 @@ request waits up to 30 seconds for it to catch up.
 
 - The reviewer is a stateless `ctx.generate.text` call with a JSON tool protocol,
   not a full forked agent loop.
-- Notes are injected with `ctx.session.synthetic`. `steer`/`queue` schedule an
-  agent turn; a `preserve` note arrives with `resume: false`, so it is durably
-  enqueued and appears in the session's pending inbox, entering context on the
-  next turn.
+- Notes are injected with `ctx.session.synthetic`. A `steer`/`queue` note rides
+  a turn that is already running; a `preserve` note arrives with `resume: false`,
+  so it is durably enqueued and enters context on the next turn.
 - Tool grants are limited to the read-only set.
-- There is no `/advisor dump`, transcript persistence to `__advisor*.jsonl`, or
-  per-advisor token/cost reporting (the generation API returns text only).
+- There is no transcript persistence to `__advisor*.jsonl` or per-advisor
+  token/cost reporting (the generation API returns text only).
 
 ## Advisor notes in OpenChamber
 
@@ -325,7 +327,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   custom providers), which the model resolver handles by falling back to the
   default with a warning.
 
-68 unit/integration tests cover the emission guard, delivery routing, transcript
+69 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -342,7 +344,7 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 68 unit/integration tests
+bun test        # 69 unit/integration tests
 bunx tsc --noEmit
 ```
 
