@@ -1,0 +1,64 @@
+import { describe, expect, test } from "bun:test"
+import { isAdvisorMessage, renderDelta, tailIsTerminalAnswer, type SessionMessage } from "../plugin/transcript.ts"
+
+const user: SessionMessage = { id: "m1", type: "user", text: "do the thing" }
+
+const assistant: SessionMessage = {
+  id: "m2",
+  type: "assistant",
+  finish: "tool-calls",
+  content: [
+    { type: "reasoning", text: "thinking hard" },
+    { type: "text", text: "I will edit the file." },
+    {
+      type: "tool",
+      name: "edit",
+      state: { status: "completed", input: { path: "a.ts", text: "x" }, content: [{ type: "text", text: "ok" }] },
+    },
+  ],
+}
+
+describe("renderDelta", () => {
+  test("renders user, thinking, tools and results", () => {
+    const text = renderDelta([user, assistant], { includeThinking: true, maxChars: 10_000 })
+    expect(text).toContain("### Session update")
+    expect(text).toContain("**User**")
+    expect(text).toContain("<thinking>")
+    expect(text).toContain("**Tool** `edit` (completed)")
+    expect(text).toContain("Result:")
+  })
+
+  test("omits thinking when disabled", () => {
+    const text = renderDelta([assistant], { includeThinking: false, maxChars: 10_000 })
+    expect(text).not.toContain("<thinking>")
+  })
+
+  test("skips advisor-injected messages", () => {
+    const advisory: SessionMessage = { id: "m3", type: "synthetic", text: "<advisory/>", metadata: { advisor: { slug: "a" } } }
+    expect(isAdvisorMessage(advisory)).toBe(true)
+    expect(renderDelta([advisory], { includeThinking: true, maxChars: 1000 })).toBe("")
+  })
+
+  test("elides the oldest content past the budget", () => {
+    const big: SessionMessage = { id: "b", type: "assistant", content: [{ type: "text", text: "x".repeat(5000) }] }
+    const text = renderDelta([big], { includeThinking: true, maxChars: 1000 })
+    expect(text).toContain("elided")
+    expect(text.length).toBeLessThan(1400)
+  })
+})
+
+describe("tailIsTerminalAnswer", () => {
+  test("true when the last assistant message is a text stop", () => {
+    const done: SessionMessage = { id: "d", type: "assistant", finish: "stop", content: [{ type: "text", text: "done" }] }
+    expect(tailIsTerminalAnswer([user, done])).toBe(true)
+  })
+
+  test("false when the assistant is still calling tools", () => {
+    expect(tailIsTerminalAnswer([user, assistant])).toBe(false)
+  })
+
+  test("false when the tail is a trailing user turn", () => {
+    const done: SessionMessage = { id: "d", type: "assistant", finish: "stop", content: [{ type: "text", text: "done" }] }
+    expect(tailIsTerminalAnswer([done, { id: "u2", type: "user", text: "more" }])).toBe(false)
+  })
+})

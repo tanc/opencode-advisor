@@ -1,0 +1,25 @@
+instructions: |
+  Prefer fixes that preserve public APIs and keep tests focused.
+
+maxNotesPerUpdate: 4
+
+advisors:
+  - name: Architecture
+    enabled: true
+    model: anthropic/claude-sonnet-4-5#high
+    tools: [read, grep, glob]
+    instructions: |
+      Watch module boundaries, dependency direction, and public API growth.
+
+  - name: Security
+    enabled: true
+    tools: [read, grep, glob]
+    instructions: |
+      Trace untrusted input through authentication, storage, and rendering.
+      Flag any comparison of a secret with a non-constant-time operator.
+
+  - name: Release
+    enabled: false
+    tools: []
+    instructions: |
+      Check migrations, compatibility, and rollback instructions.

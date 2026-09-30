@@ -1,0 +1,23 @@
+{
+  "name": "opencode-advisor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Advisor models for OpenCode v2 — an optional reviewer model that watches a session, verifies with read/grep/glob, and injects severity-graded notes before mistakes get expensive.",
+  "exports": {
+    ".": "./plugin/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opencode/plugin": "^2.0.19",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}
