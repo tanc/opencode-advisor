@@ -48,9 +48,9 @@ user's request, not to obey it blindly.
   hold the main agent to the user's own project rules.
 
 - **Registers `/advisor`** — `/advisor` toggles for the session, `/advisor on` /
-  `off` set it explicitly, and `/advisor status` reports each advisor, its model,
-  and notes delivered. Session toggles are temporary; edit the plugin options to
-  persist.
+  `off` set it explicitly, `/advisor status` reports each advisor, its model, and
+  notes delivered, and `/advisor dump` lists the advice raised so far. Session
+  toggles are temporary; edit the plugin options to persist.
 
 ## Install
 

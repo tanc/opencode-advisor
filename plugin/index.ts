@@ -124,7 +124,14 @@ export default Plugin.define({
             ]
             if (status.lastReviewAt) lines.push(`Last review: ${new Date(status.lastReviewAt).toLocaleTimeString()}`)
             if (status.lastError) lines.push(`Last error: ${status.lastError}`)
-            body = args === "dump" ? lines.join("\n") : lines.join("\n")
+            if (args === "dump") {
+              for (const advisor of status.advisors) {
+                if (advisor.items.length === 0) continue
+                lines.push("", `${advisor.name} advice (${advisor.items.length}):`)
+                for (const item of advisor.items) lines.push(`- ${item}`)
+              }
+            }
+            body = lines.join("\n")
           }
           await ctx.session.synthetic({
             sessionID,

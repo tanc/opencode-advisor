@@ -466,7 +466,7 @@ export class AdvisorEngine {
 
   status(sessionID: string): {
     enabled: boolean
-    advisors: { name: string; model?: string; enabled: boolean; notes: number }[]
+    advisors: { name: string; model?: string; enabled: boolean; notes: number; items: string[] }[]
     notesDelivered: number
     backlog: number
     lastReviewAt?: number
@@ -475,7 +475,10 @@ export class AdvisorEngine {
     const state = this.#state(sessionID)
     return {
       enabled: this.#isEnabled(sessionID),
-      advisors: this.#config.advisors.map((a) => ({ name: a.name, model: a.model ?? this.#config.model, enabled: a.enabled, notes: (state.priorNotes.get(a.slug) ?? []).length })),
+      advisors: this.#config.advisors.map((a) => {
+        const items = state.priorNotes.get(a.slug) ?? []
+        return { name: a.name, model: a.model ?? this.#config.model, enabled: a.enabled, notes: items.length, items }
+      }),
       notesDelivered: state.notesDelivered,
       backlog: state.backlog,
       lastReviewAt: state.lastReviewAt,
