@@ -301,7 +301,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   custom providers), which the model resolver handles by falling back to the
   default with a warning.
 
-58 unit/integration tests cover the emission guard, delivery routing, transcript
+60 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -318,7 +318,7 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 58 unit/integration tests
+bun test        # 60 unit/integration tests
 bunx tsc --noEmit
 ```
 

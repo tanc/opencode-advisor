@@ -75,6 +75,12 @@ interface SessionState {
   notesDelivered: number
   lastReviewAt?: number
   lastError?: string
+  /** Completed review passes, even those that raised no notes. */
+  reviews: number
+  /** Notes raised (not necessarily delivered) by the most recent pass. */
+  lastNoteCount: number
+  /** Human-readable outcome of the most recent pass, e.g. "no notes". */
+  lastOutcome?: string
   backlog: number
   userMessageCount: number
   steersSinceUser: number
@@ -130,6 +136,8 @@ export class AdvisorEngine {
         reviewInProgress: false,
         queuedReview: null,
         notesDelivered: 0,
+        reviews: 0,
+        lastNoteCount: 0,
         backlog: 0,
         userMessageCount: 0,
         steersSinceUser: 0,
@@ -275,10 +283,14 @@ export class AdvisorEngine {
       const advisors = this.#config.advisors.filter((a) => a.enabled)
       if (advisors.length === 0) return
 
+      let notes = 0
       for (const advisor of advisors) {
         if (this.#abort.signal.aborted) return
-        await this.#reviewWith(advisor, sessionID, transcript, streaming, state)
+        notes += await this.#reviewWith(advisor, sessionID, transcript, streaming, state)
       }
+      state.reviews += 1
+      state.lastNoteCount = notes
+      state.lastError = undefined
       state.lastReviewAt = Date.now()
     } catch (err) {
       state.lastError = (err as Error).message
@@ -301,7 +313,7 @@ export class AdvisorEngine {
     transcript: string,
     streaming: boolean,
     state: SessionState,
-  ): Promise<void> {
+  ): Promise<number> {
     const model = await this.#host.resolveModel(advisor.model ?? this.#config.model)
 
     const guard = state.guards.get(advisor.slug) ?? new EmissionGuard({ budgetPerUpdate: advisor.maxNotesPerUpdate ?? this.#config.sharedMaxNotesPerUpdate })
@@ -323,7 +335,10 @@ export class AdvisorEngine {
     const toolResults: { tool: string; input: Record<string, unknown>; text: string }[] = []
 
     for (let round = 0; ; round++) {
-      if (this.#abort.signal.aborted) return
+      if (this.#abort.signal.aborted) {
+        state.lastOutcome = "aborted"
+        return 0
+      }
       const prompt = buildReviewPrompt({ system, transcript, toolResults, priorNotes: prior.slice(-PRIOR_NOTE_LIMIT) })
       let text: string
       try {
@@ -331,24 +346,28 @@ export class AdvisorEngine {
       } catch (err) {
         state.lastError = (err as Error).message
         this.#host.log("warn", "advisor model call failed", { advisor: advisor.name, error: (err as Error).message })
-        return
+        state.lastOutcome = "model error"
+        return 0
       }
       const reply = parseAdvisorReply(text)
       if (reply.kind === "tool" && reply.tool) {
         if (round >= this.#config.maxToolRounds) {
           this.#host.log("debug", "advisor exceeded tool round budget", { advisor: advisor.name })
-          return
+          state.lastOutcome = "tool budget exhausted"
+          return 0
         }
         const outcome = await runTool(this.#host.directory, reply.tool, reply.input ?? {}, granted)
         toolResults.push({ tool: reply.tool, input: reply.input ?? {}, text: outcome.text })
         continue
       }
       if (reply.kind === "notes" && reply.notes) {
-        await this.#routeNotes(advisor, reply.notes, sessionID, streaming, state, guard)
-      } else {
-        this.#host.log("debug", "advisor returned an unparseable reply", { advisor: advisor.name })
+        const routed = await this.#routeNotes(advisor, reply.notes, sessionID, streaming, state, guard)
+        state.lastOutcome = reply.notes.length === 0 ? "no notes" : `${reply.notes.length} notes`
+        return routed
       }
-      return
+      this.#host.log("debug", "advisor returned an unparseable reply", { advisor: advisor.name })
+      state.lastOutcome = "unparseable reply"
+      return 0
     }
   }
 
@@ -363,8 +382,8 @@ export class AdvisorEngine {
     streaming: boolean,
     state: SessionState,
     guard: EmissionGuard,
-  ): Promise<void> {
-    if (notes.length === 0) return
+  ): Promise<number> {
+    if (notes.length === 0) return 0
     const immuneActive = isImmuneActive(state, this.#config.immuneTurns)
 
     const admitted: { note: string; severity?: Severity; channel: DeliveryChannel }[] = []
@@ -391,7 +410,7 @@ export class AdvisorEngine {
       }
       admitted.push({ note: note.note, severity, channel })
     }
-    if (admitted.length === 0) return
+    if (admitted.length === 0) return 0
 
     const groups: Record<DeliveryChannel, Note[]> = { steer: [], queue: [], preserve: [] }
     for (const entry of admitted) groups[entry.channel].push({ note: entry.note, severity: entry.severity })
@@ -427,6 +446,7 @@ export class AdvisorEngine {
 
     if (steered) state.immuneTurnStart = state.completedTurns
     if (groups.steer.length > 0) state.steersSinceUser += groups.steer.length
+    return admitted.length
   }
 
   /* ---------------------------------------------------------------- *
@@ -486,7 +506,10 @@ export class AdvisorEngine {
     }[]
     notesDelivered: number
     backlog: number
+    reviews: number
     lastReviewAt?: number
+    lastNoteCount: number
+    lastOutcome?: string
     lastError?: string
   } {
     const state = this.#state(sessionID)
@@ -509,7 +532,10 @@ export class AdvisorEngine {
       }),
       notesDelivered: state.notesDelivered,
       backlog: state.backlog,
+      reviews: state.reviews,
       lastReviewAt: state.lastReviewAt,
+      lastNoteCount: state.lastNoteCount,
+      lastOutcome: state.lastOutcome,
       lastError: state.lastError,
     }
   }

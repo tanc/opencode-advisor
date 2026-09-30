@@ -166,8 +166,12 @@ export default Plugin.define({
             } else {
               lines.push(`Reviewers configured: ${status.advisors.length}`)
             }
-            lines.push(`Delivered ${status.notesDelivered} · backlog ${status.backlog}`)
-            if (status.lastReviewAt) lines.push(`Last review: ${new Date(status.lastReviewAt).toLocaleTimeString()}`)
+            lines.push(
+              `Reviews ${status.reviews} · delivered ${status.notesDelivered} · backlog ${status.backlog}` +
+                (status.lastReviewAt
+                  ? ` · last ${new Date(status.lastReviewAt).toLocaleTimeString()} (${status.lastOutcome ?? `${status.lastNoteCount} notes`})`
+                  : " · no review yet"),
+            )
             if (status.lastError) lines.push(`Last error: ${status.lastError}`)
             if (isDump) {
               for (const a of status.advisors) {

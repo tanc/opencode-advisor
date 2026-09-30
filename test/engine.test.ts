@@ -206,4 +206,31 @@ describe("AdvisorEngine", () => {
     expect(calls).toEqual([["s1", true]])
     engine.dispose()
   })
+
+  test("records a review pass even when it raises no notes", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    await engine.review("s1", false)
+
+    const status = engine.status("s1")
+    expect(status.reviews).toBe(1)
+    expect(status.lastNoteCount).toBe(0)
+    expect(status.lastReviewAt).toBeGreaterThan(0)
+    expect(status.lastError).toBeUndefined()
+    engine.dispose()
+  })
+
+  test("counts the notes a review pass raises", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[{"severity":"concern","note":"Guard the empty case"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    await engine.review("s1", false)
+
+    expect(engine.status("s1").lastNoteCount).toBe(1)
+    expect(engine.status("s1").lastOutcome).toBe("1 notes")
+    engine.dispose()
+  })
 })
