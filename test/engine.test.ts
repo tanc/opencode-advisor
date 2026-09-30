@@ -222,6 +222,22 @@ describe("AdvisorEngine", () => {
     engine.dispose()
   })
 
+  test("marks a mid-turn pass as in progress", async () => {
+    const messages: SessionMessage[] = [user, terminal]
+    const host = makeHost("/repo", messages)
+    host.responses.push('{"notes":[]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    await engine.review("s1", true)
+    expect(engine.status("s1").lastOutcome).toBe("no notes (in progress)")
+
+    messages.push({ id: "m4", type: "assistant", finish: "stop", content: [{ type: "text", text: "settled" }] })
+    host.responses.push('{"notes":[]}')
+    await engine.review("s1", false)
+    expect(engine.status("s1").lastOutcome).toBe("no notes")
+    engine.dispose()
+  })
+
   test("counts the notes a review pass raises", async () => {
     const host = makeHost("/repo", [user, terminal])
     host.responses.push('{"notes":[{"severity":"concern","note":"Guard the empty case"}]}')

@@ -362,7 +362,10 @@ export class AdvisorEngine {
       }
       if (reply.kind === "notes" && reply.notes) {
         const routed = await this.#routeNotes(advisor, reply.notes, sessionID, streaming, state, guard)
-        state.lastOutcome = reply.notes.length === 0 ? "no notes" : `${reply.notes.length} notes`
+        const count = reply.notes.length === 0 ? "no notes" : `${reply.notes.length} notes`
+        // Mid-turn the reviewer is instructed to withhold non-blocking critique,
+        // so "no notes (in progress)" is expected, not a clean bill of health.
+        state.lastOutcome = streaming ? `${count} (in progress)` : count
         return routed
       }
       this.#host.log("debug", "advisor returned an unparseable reply", { advisor: advisor.name })
