@@ -304,9 +304,13 @@ await fetch(`${base}/api/notifications/emit`, {
 `base` is `OPENCHAMBER_AGENT_TOOL_URL` with its `/api/openchamber/agent-tool`
 suffix removed, falling back to the URL's origin — so a deployment that adds a
 path prefix keeps it. Set `notify` to `away` (only while OpenChamber is not
-focused; the server's default) or `always` (`showWhenFocused: true`). The route
-is rate limited to 10 notifications per 10 s and respects the
-`nativeNotificationsEnabled` setting. Outside OpenChamber the environment
+focused; the server's default) or `always` (`showWhenFocused: true`).
+
+A `blocker` is treated as urgent: it sets `showWhenFocused: true` even under
+`away`, so a critical finding pages you while you are looking at OpenChamber —
+without waking the agent. `off` suppresses notifications entirely, blockers
+included. The route is rate limited to 10 notifications per 10 s and respects
+the `nativeNotificationsEnabled` setting. Outside OpenChamber the environment
 variables are absent and the call is skipped.
 
 ## Verified

@@ -54,7 +54,9 @@ export interface AdvisorOptions {
   /**
    * Notify through OpenChamber when a note is delivered. `off` (default) never
    * notifies; `away` only while OpenChamber is unfocused; `always` notifies even
-   * when it is in front. No-op when OpenChamber is not the host.
+   * when it is in front. A `blocker` pages under `away` too, so critical
+   * findings are not hidden by the focus gate. No-op when OpenChamber is not the
+   * host.
    */
   notify?: "off" | "away" | "always"
 }

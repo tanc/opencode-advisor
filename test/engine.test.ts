@@ -300,6 +300,23 @@ describe("AdvisorEngine", () => {
     engine.dispose()
   })
 
+  test("a blocker pages even while the user is looking", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    const calls: NotifyInput[] = []
+    host.notify = (input) => {
+      calls.push(input)
+    }
+    host.responses.push('{"notes":[{"severity":"blocker","note":"This drops the last write"}]}')
+    const engine = new AdvisorEngine(makeConfig({ notify: "away" }), host)
+
+    await engine.review("s1", false)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.title).toBe("Advisor · blocker")
+    expect(calls[0]!.showWhenFocused).toBe(true)
+    engine.dispose()
+  })
+
   test("a note never resumes an idle session", async () => {
     const host = makeHost("/repo", [user, terminal])
     host.responses.push('{"notes":[{"severity":"blocker","note":"Stop and fix the schema"}]}')

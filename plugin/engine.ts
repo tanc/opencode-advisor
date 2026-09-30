@@ -457,7 +457,9 @@ export class AdvisorEngine {
         body: admitted.map((entry) => entry.note).join(" · ").slice(0, 500),
         sessionID,
         directory: this.#host.directory,
-        showWhenFocused: this.#config.notify === "always",
+        // A blocker pages even while the user is looking at OpenChamber. The
+        // agent is still not woken: this only skips the away-only gate.
+        showWhenFocused: this.#config.notify === "always" || top.severity === "blocker",
       })
     }
 
