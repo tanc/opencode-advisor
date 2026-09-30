@@ -43,6 +43,10 @@ user's request, not to obey it blindly.
   </advisory>
   ```
 
+- **Sees the project's standing instructions.** Discovered `AGENTS.md` files are
+  added to the reviewer prompt as a `<project-context>` block, so the advisor can
+  hold the main agent to the user's own project rules.
+
 - **Registers `/advisor`** — `/advisor` toggles for the session, `/advisor on` /
   `off` set it explicitly, and `/advisor status` reports each advisor, its model,
   and notes delivered. Session toggles are temporary; edit the plugin options to

@@ -18,6 +18,7 @@ beforeAll(async () => {
   cwd = await fs.mkdtemp(path.join(os.tmpdir(), "advisor-cwd-"))
   configDir = await fs.mkdtemp(path.join(os.tmpdir(), "advisor-cfg-"))
   await fs.writeFile(path.join(cwd, "WATCHDOG.md"), "Watch for schema changes without rollout.")
+  await fs.writeFile(path.join(cwd, "AGENTS.md"), "Always run the focused test suite before claiming done.")
   await fs.writeFile(
     path.join(cwd, "WATCHDOG.yml"),
     [
@@ -106,6 +107,7 @@ describe("discoverAdvisorFiles", () => {
     expect(arch?.instructions).toContain("module boundaries")
     expect(found.advisors.find((a) => a.name === "Disabled One")?.enabled).toBe(false)
     expect(found.sharedInstructions).toContain("preserve public APIs")
+    expect(found.projectContext).toContain("Always run the focused test suite")
   })
 })
 

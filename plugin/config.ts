@@ -90,6 +90,8 @@ export interface AdvisorConfig {
   maxTranscriptChars: number
   /** Blocks appended to every advisor system prompt (WATCHDOG.md content). */
   watchdogBlocks: string[]
+  /** Project context files (AGENTS.md and the like) for the reviewer prompt. */
+  projectContext?: string
   warnings: string[]
 }
 
@@ -390,7 +392,7 @@ function parseRoster(content: string, file: string, warn: (m: string) => void): 
 export async function discoverAdvisorFiles(
   cwd: string,
   configDir: string,
-): Promise<{ watchdogBlocks: string[]; advisors: AdvisorEntry[]; sharedInstructions?: string; sharedMaxNotesPerUpdate?: number; warnings: string[] }> {
+): Promise<{ watchdogBlocks: string[]; advisors: AdvisorEntry[]; sharedInstructions?: string; sharedMaxNotesPerUpdate?: number; projectContext?: string; warnings: string[] }> {
   const warnings: string[] = []
   const watchdogBlocks: string[] = []
 
@@ -398,6 +400,20 @@ export async function discoverAdvisorFiles(
     const expanded = (await expandAtImports(candidate.content, candidate.path)).trim()
     if (expanded) watchdogBlocks.push(`Especially pay attention to:\n<attention>\n${expanded}\n</attention>`)
   }
+
+  // Standing project instructions (AGENTS.md) so the reviewer can hold the main
+  // agent to them. Discovery order is the same, more specific last.
+  const contextFiles: { path: string; content: string }[] = []
+  for (const candidate of await collectConfigCandidates(cwd, configDir, ["AGENTS.md"])) {
+    const content = (await expandAtImports(candidate.content, candidate.path)).trim()
+    if (content) contextFiles.push({ path: candidate.path, content })
+  }
+  const projectContext =
+    contextFiles.length > 0
+      ? `<project-context>\nContext files: the user's standing project instructions; binding on the driving agent. Enforce them; flag drift immediately; NEVER advise against mandates.\n${contextFiles
+          .map((f) => `<file path="${f.path}">\n${f.content}\n</file>`)
+          .join("\n")}\n</project-context>`
+      : undefined
 
   const advisors = new Map<string, AdvisorEntry>()
   const sharedParts: string[] = []
@@ -428,6 +444,7 @@ export async function discoverAdvisorFiles(
     advisors: [...advisors.values()],
     sharedInstructions: sharedParts.length > 0 ? sharedParts.join("\n\n") : undefined,
     sharedMaxNotesPerUpdate,
+    projectContext,
     warnings,
   }
 }
@@ -499,6 +516,7 @@ export async function resolveConfig(
     maxToolRounds: base.maxToolRounds,
     maxTranscriptChars: base.maxTranscriptChars,
     watchdogBlocks: discovered.watchdogBlocks,
+    projectContext: discovered.projectContext,
     warnings,
   }
 }

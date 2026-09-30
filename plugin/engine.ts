@@ -213,7 +213,7 @@ export class AdvisorEngine {
 
   #schedule(sessionID: string, streaming: boolean): void {
     const state = this.#state(sessionID)
-    if (!state.timer) state.backlog += 1
+    if (!state.timer && !state.reviewInProgress) state.backlog += 1
     if (state.timer) clearTimeout(state.timer)
     state.timer = setTimeout(() => {
       state.timer = undefined
@@ -313,7 +313,7 @@ export class AdvisorEngine {
       sharedInstructions: this.#config.sharedInstructions,
       advisorInstructions: advisor.instructions,
       watchdogBlocks: this.#config.watchdogBlocks,
-      projectContext: undefined,
+      projectContext: this.#config.projectContext,
     })
 
     const granted = advisor.tools === undefined ? [...DEFAULT_TOOLS] : advisor.tools
