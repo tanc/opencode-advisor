@@ -35,6 +35,20 @@ export default Plugin.define({
 
     const controller = new AbortController()
 
+    // Per-session enable overrides are persisted so `/advisor on` survives a
+    // plugin reload (OpenChamber reloads plugins on config/plugin changes).
+    const storageKey = "sessionEnabled"
+    const overrides: Record<string, boolean> = {}
+    const persistOverrides = async () => {
+      const keys = Object.keys(overrides)
+      for (const stale of keys.slice(0, Math.max(0, keys.length - 200))) delete overrides[stale]
+      try {
+        await ctx.storage.set(storageKey, overrides)
+      } catch (err) {
+        console.warn(`[advisor] failed to persist session override: ${(err as Error).message}`)
+      }
+    }
+
     const host: EngineHost = {
       directory,
       async listMessages(sessionID) {
@@ -79,9 +93,28 @@ export default Plugin.define({
         if (level === "warn") console.warn(`[advisor] ${message}`, data ?? "")
         else console.debug(`[advisor] ${message}`, data ?? "")
       },
+      async onSessionOverride(sessionID, enabled) {
+        if (enabled === undefined) delete overrides[sessionID]
+        else overrides[sessionID] = enabled
+        await persistOverrides()
+      },
     }
 
     const engine = new AdvisorEngine(config, host)
+
+    try {
+      const stored = await ctx.storage.get(storageKey)
+      if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+        for (const [id, value] of Object.entries(stored as Record<string, unknown>)) {
+          if (typeof value === "boolean") {
+            overrides[id] = value
+            engine.setSessionEnabled(id, value, false)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[advisor] failed to read session overrides: ${(err as Error).message}`)
+    }
 
     if (!config.enabled) {
       console.info("[advisor] loaded but disabled; enable with /advisor on or the `enabled` option.")
@@ -108,27 +141,39 @@ export default Plugin.define({
           let body: string
           if (args === "on") {
             engine.setSessionEnabled(sessionID, true)
-            body = "Advisor enabled for this session."
+            body = "Advisor: on for this session. /advisor status for details."
           } else if (args === "off") {
             engine.setSessionEnabled(sessionID, false)
-            body = "Advisor disabled for this session."
+            body = "Advisor: off for this session. /advisor on to turn it back on."
+          } else if (args === "default") {
+            engine.setSessionEnabled(sessionID, undefined)
+            body = `Advisor: back to the plugin default (${engine.status(sessionID).enabled ? "on" : "off"}).`
           } else if (args === "") {
-            const enabled = engine.toggleSession(sessionID)
-            body = `Advisor ${enabled ? "enabled" : "disabled"} for this session.`
+            body = `Advisor: ${engine.toggleSession(sessionID) ? "on" : "off"} for this session.`
           } else {
             const status = engine.status(sessionID)
+            const isDump = args === "dump"
             const lines = [
-              `Advisor: ${status.enabled ? "enabled" : "disabled"}`,
-              ...status.advisors.map((a) => `- ${a.name}: ${a.enabled ? "on" : "paused"} · model ${a.model ?? "(default)"} · ${a.notes} notes`),
-              `Notes delivered: ${status.notesDelivered}; backlog: ${status.backlog}`,
+              status.enabled
+                ? `Advisor: on${status.override === undefined ? " (plugin default)" : " (this session)"}`
+                : "Advisor: off — run /advisor on to enable it for this session",
             ]
+            if (status.enabled) {
+              for (const a of status.advisors) {
+                const state = a.active ? "active" : a.rosterEnabled ? "paused" : "disabled in config"
+                lines.push(`${a.name}: ${state} · model ${a.model ?? "(default)"} · ${a.notes} notes`)
+              }
+            } else {
+              lines.push(`Reviewers configured: ${status.advisors.length}`)
+            }
+            lines.push(`Delivered ${status.notesDelivered} · backlog ${status.backlog}`)
             if (status.lastReviewAt) lines.push(`Last review: ${new Date(status.lastReviewAt).toLocaleTimeString()}`)
             if (status.lastError) lines.push(`Last error: ${status.lastError}`)
-            if (args === "dump") {
-              for (const advisor of status.advisors) {
-                if (advisor.items.length === 0) continue
-                lines.push("", `${advisor.name} advice (${advisor.items.length}):`)
-                for (const item of advisor.items) lines.push(`- ${item}`)
+            if (isDump) {
+              for (const a of status.advisors) {
+                if (a.items.length === 0) continue
+                lines.push("", `${a.name} advice (${a.items.length}):`)
+                for (const item of a.items) lines.push(`- ${item}`)
               }
             }
             body = lines.join("\n")

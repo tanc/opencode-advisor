@@ -47,10 +47,19 @@ user's request, not to obey it blindly.
   added to the reviewer prompt as a `<project-context>` block, so the advisor can
   hold the main agent to the user's own project rules.
 
-- **Registers `/advisor`** — `/advisor` toggles for the session, `/advisor on` /
-  `off` set it explicitly, `/advisor status` reports each advisor, its model, and
-  notes delivered, and `/advisor dump` lists the advice raised so far. Session
-  toggles are temporary; edit the plugin options to persist.
+- **Registers `/advisor`** — `/advisor` toggles for the session, `/advisor on`
+  / `off` set it explicitly, `/advisor default` clears the session override,
+  `/advisor status` reports each advisor, its model, and notes delivered, and
+  `/advisor dump` lists the advice raised so far. Session toggles are persisted,
+  so they survive a plugin reload; set `options.enabled` for a persistent default.
+
+  > **Visibility.** OpenCode v2 gives a plugin no free-form output channel:
+  > `command.execute` returns `void`, and OpenChamber's timeline deliberately
+  > hides `synthetic`/`system` messages (only `user`, `assistant`, `compaction`
+  > and `shell` render). The command result and the advisor's own notes are
+  > therefore written as synthetic messages, which render in the OpenCode TUI
+  > but not in OpenChamber's timeline — see the note about rendering advisor
+  > notices in OpenChamber below.
 
 ## Install
 
@@ -251,6 +260,29 @@ request waits up to 30 seconds for it to catch up.
 - There is no `/advisor dump`, transcript persistence to `__advisor*.jsonl`, or
   per-advisor token/cost reporting (the generation API returns text only).
 
+## Advisor notes in OpenChamber
+
+OpenChamber's timeline renders only `user`, `assistant`, `compaction`, and
+`shell` messages; every `synthetic`/`system` message is dropped as prompt
+plumbing (`packages/ui/src/components/chat/lib/timelineRoles.ts`). Advisor notes
+and `/advisor` output are synthetic, so they reach the model (and render in the
+plain OpenCode TUI) but do not appear in OpenChamber's timeline. Command output
+is posted with `resume: false`, so it also stays in the session inbox until the
+next turn.
+
+To show them, OpenChamber needs to treat a synthetic message tagged
+`metadata.advisor` as a notice row — the same treatment `compaction`/`shell` get.
+The plugin already tags every injected message (`metadata.advisor`), so the
+change is entirely on the OpenChamber side:
+
+- `components/chat/lib/timelineRoles.ts` — recognise advisor notices
+- `components/chat/MessageList.tsx` — route them to `TimelineNotice`
+- `components/chat/lib/attachSyntheticContext.ts` — don't consume them as plumbing
+- `components/chat/message/TimelineNotice.tsx` — add an `AdvisorNotice` row
+
+Because OpenChamber adds the message on `session.inbox.enqueued`, a notice would
+appear immediately with no model call.
+
 ## Verified
 
 Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
@@ -269,7 +301,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   custom providers), which the model resolver handles by falling back to the
   default with a warning.
 
-56 unit/integration tests cover the emission guard, delivery routing, transcript
+58 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -286,7 +318,7 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 56 unit/integration tests
+bun test        # 58 unit/integration tests
 bunx tsc --noEmit
 ```
 

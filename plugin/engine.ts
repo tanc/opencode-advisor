@@ -52,6 +52,8 @@ export interface EngineHost {
   inject(input: InjectInput): Promise<string | undefined>
   /** Resolve a `provider/model#variant` selector (or the default) to a usable model. */
   resolveModel(selector: string | undefined): Promise<ModelRef | undefined>
+  /** Persist a per-session enable override so it survives a plugin reload. */
+  onSessionOverride?(sessionID: string, enabled: boolean | undefined): Promise<void> | void
   log(level: "debug" | "warn", message: string, data?: Record<string, unknown>): void
 }
 
@@ -148,8 +150,9 @@ export class AdvisorEngine {
     return state?.enabled ?? this.#config.enabled
   }
 
-  setSessionEnabled(sessionID: string, enabled: boolean | undefined): boolean {
+  setSessionEnabled(sessionID: string, enabled: boolean | undefined, persist = true): boolean {
     this.#state(sessionID).enabled = enabled
+    if (persist) void this.#host.onSessionOverride?.(sessionID, enabled)
     return this.#isEnabled(sessionID)
   }
 
@@ -466,18 +469,43 @@ export class AdvisorEngine {
 
   status(sessionID: string): {
     enabled: boolean
-    advisors: { name: string; model?: string; enabled: boolean; notes: number; items: string[] }[]
+    /** The plugin-default state (`options.enabled`). */
+    defaultEnabled: boolean
+    /** The per-session override, when one was set; undefined means "use the default". */
+    override?: boolean
+    advisors: {
+      name: string
+      slug: string
+      model?: string
+      /** The roster entry's own switch. */
+      rosterEnabled: boolean
+      /** Whether this advisor will actually review (session on AND roster on). */
+      active: boolean
+      notes: number
+      items: string[]
+    }[]
     notesDelivered: number
     backlog: number
     lastReviewAt?: number
     lastError?: string
   } {
     const state = this.#state(sessionID)
+    const enabled = this.#isEnabled(sessionID)
     return {
-      enabled: this.#isEnabled(sessionID),
+      enabled,
+      defaultEnabled: this.#config.enabled,
+      override: state.enabled,
       advisors: this.#config.advisors.map((a) => {
         const items = state.priorNotes.get(a.slug) ?? []
-        return { name: a.name, model: a.model ?? this.#config.model, enabled: a.enabled, notes: items.length, items }
+        return {
+          name: a.name,
+          slug: a.slug,
+          model: a.model,
+          rosterEnabled: a.enabled,
+          active: enabled && a.enabled,
+          notes: items.length,
+          items,
+        }
       }),
       notesDelivered: state.notesDelivered,
       backlog: state.backlog,

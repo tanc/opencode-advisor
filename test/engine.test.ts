@@ -168,4 +168,42 @@ describe("AdvisorEngine", () => {
     expect(prompt).not.toContain("old done")
     engine.dispose()
   })
+
+  test("status separates the session switch from the roster switch", () => {
+    const host = makeHost("/repo", [user, terminal])
+    const engine = new AdvisorEngine(makeConfig({ enabled: false }), host)
+
+    let status = engine.status("s1")
+    expect(status.enabled).toBe(false)
+    expect(status.defaultEnabled).toBe(false)
+    expect(status.override).toBeUndefined()
+    expect(status.advisors[0]!.rosterEnabled).toBe(true)
+    expect(status.advisors[0]!.active).toBe(false)
+
+    engine.setSessionEnabled("s1", true)
+    status = engine.status("s1")
+    expect(status.enabled).toBe(true)
+    expect(status.override).toBe(true)
+    expect(status.advisors[0]!.active).toBe(true)
+
+    engine.setSessionEnabled("s1", undefined, false)
+    status = engine.status("s1")
+    expect(status.enabled).toBe(false)
+    expect(status.override).toBeUndefined()
+    engine.dispose()
+  })
+
+  test("persists a session override when one is set", () => {
+    const host = makeHost("/repo", [user, terminal])
+    const calls: [string, boolean | undefined][] = []
+    host.onSessionOverride = (sessionID, enabled) => {
+      calls.push([sessionID, enabled])
+    }
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    engine.setSessionEnabled("s1", true)
+    engine.setSessionEnabled("s1", undefined, false)
+    expect(calls).toEqual([["s1", true]])
+    engine.dispose()
+  })
 })
