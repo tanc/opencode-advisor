@@ -15,8 +15,63 @@
  */
 import { Plugin } from "@opencode/plugin"
 import { resolveConfig, type AdvisorOptions } from "./config.ts"
-import { AdvisorEngine, parseSelector, type AdvisorEvent, type EngineHost, type ModelRef } from "./engine.ts"
+import { AdvisorEngine, parseSelector, type AdvisorEvent, type EngineHost, type ModelRef, type NotifyInput } from "./engine.ts"
 import type { SessionMessage } from "./transcript.ts"
+
+const AGENT_TOOL_SUFFIX = "/api/openchamber/agent-tool"
+
+/**
+ * Base URL for OpenChamber's server, derived from the agent-tool callback URL.
+ *
+ * `OPENCHAMBER_AGENT_TOOL_URL` is `http://host:port/api/openchamber/agent-tool`
+ * in the managed setup, so the origin is usually enough. Stripping the known
+ * suffix instead keeps any path prefix a proxied deployment may add (an
+ * isolated space is addressed as `/api/spaces/<id>/...`), and falls back to the
+ * origin when the URL has an unexpected shape.
+ */
+export function notificationBases(url: string): { base: string; origin: string } | undefined {
+  try {
+    const parsed = new URL(url)
+    const origin = parsed.origin
+    const path = parsed.pathname.replace(/\/+$/, "")
+    const base = path.endsWith(AGENT_TOOL_SUFFIX) ? origin + path.slice(0, -AGENT_TOOL_SUFFIX.length) : origin
+    return { base, origin }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Raise a notification through OpenChamber (`POST /api/notifications/emit`),
+ * authorized by the managed plugin bearer token. Silent no-op when the plugin
+ * is not running under OpenChamber, which is the normal case for other hosts.
+ */
+async function postNotification(input: NotifyInput): Promise<void> {
+  const url = process.env.OPENCHAMBER_AGENT_TOOL_URL
+  const token = process.env.OPENCHAMBER_AGENT_TOOL_TOKEN
+  if (!url || !token) return
+  const bases = notificationBases(url)
+  if (!bases) return
+
+  const body = JSON.stringify({
+    title: input.title.slice(0, 120),
+    body: input.body.slice(0, 500),
+    tag: "advisor",
+    sessionId: input.sessionID,
+    directory: input.directory,
+    showWhenFocused: input.showWhenFocused,
+  })
+  const send = (base: string) =>
+    fetch(`${base}/api/notifications/emit`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body,
+    })
+
+  let response = await send(bases.base)
+  if (response.status === 404 && bases.base !== bases.origin) response = await send(bases.origin)
+  if (!response.ok) console.warn(`[advisor] notification emit failed: HTTP ${response.status}`)
+}
 
 export default Plugin.define({
   id: "advisor",
@@ -97,6 +152,9 @@ export default Plugin.define({
         if (enabled === undefined) delete overrides[sessionID]
         else overrides[sessionID] = enabled
         await persistOverrides()
+      },
+      notify(input) {
+        void postNotification(input).catch((err) => console.warn(`[advisor] notification failed: ${(err as Error).message}`))
       },
     }
 

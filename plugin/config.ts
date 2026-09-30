@@ -51,6 +51,12 @@ export interface AdvisorOptions {
   maxToolRounds?: number
   /** Max characters of transcript sent per review. Default 60000. */
   maxTranscriptChars?: number
+  /**
+   * Notify through OpenChamber when a note is delivered. `off` (default) never
+   * notifies; `away` only while OpenChamber is unfocused; `always` notifies even
+   * when it is in front. No-op when OpenChamber is not the host.
+   */
+  notify?: "off" | "away" | "always"
 }
 
 /** One roster entry (inline option or a `advisors[]` list item in `WATCHDOG.yml`). */
@@ -88,6 +94,8 @@ export interface AdvisorConfig {
   includeThinking: boolean
   maxToolRounds: number
   maxTranscriptChars: number
+  /** How notes reach the user's notifications (OpenChamber only). */
+  notify: "off" | "away" | "always"
   /** Blocks appended to every advisor system prompt (WATCHDOG.md content). */
   watchdogBlocks: string[]
   /** Project context files (AGENTS.md and the like) for the reviewer prompt. */
@@ -102,6 +110,10 @@ const truthy = /^(1|true|yes|on)$/i
 function envBool(name: string): boolean | undefined {
   const v = process.env[name]
   return v === undefined ? undefined : truthy.test(v)
+}
+
+function parseNotify(value: unknown): "off" | "away" | "always" {
+  return value === "away" || value === "always" ? value : "off"
 }
 
 function num(value: unknown): number | undefined {
@@ -174,6 +186,7 @@ export function resolveOptions(options: AdvisorOptions): Omit<AdvisorConfig, "ad
     includeThinking: bool(options.includeThinking) ?? envBool("ADVISOR_INCLUDE_THINKING") ?? true,
     maxToolRounds: Math.max(0, num(options.maxToolRounds) ?? 6),
     maxTranscriptChars: Math.max(2_000, num(options.maxTranscriptChars) ?? 60_000),
+    notify: parseNotify(options.notify ?? process.env.ADVISOR_NOTIFY),
     discover: bool(options.discover) ?? envBool("ADVISOR_DISCOVER") ?? true,
     configuredAdvisors,
     tools,
@@ -515,6 +528,7 @@ export async function resolveConfig(
     includeThinking: base.includeThinking,
     maxToolRounds: base.maxToolRounds,
     maxTranscriptChars: base.maxTranscriptChars,
+    notify: base.notify,
     watchdogBlocks: discovered.watchdogBlocks,
     projectContext: discovered.projectContext,
     warnings,

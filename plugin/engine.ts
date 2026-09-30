@@ -54,7 +54,18 @@ export interface EngineHost {
   resolveModel(selector: string | undefined): Promise<ModelRef | undefined>
   /** Persist a per-session enable override so it survives a plugin reload. */
   onSessionOverride?(sessionID: string, enabled: boolean | undefined): Promise<void> | void
+  /** Raise a user-facing notification (OpenChamber only; a no-op elsewhere). */
+  notify?(input: NotifyInput): void
   log(level: "debug" | "warn", message: string, data?: Record<string, unknown>): void
+}
+
+export interface NotifyInput {
+  title: string
+  body: string
+  sessionID: string
+  directory: string
+  /** Ask to show even when the user is looking at OpenChamber. */
+  showWhenFocused: boolean
 }
 
 interface SessionState {
@@ -439,9 +450,25 @@ export class AdvisorEngine {
       if (channel === "steer") steered = true
     }
 
+    const deliveredBefore = state.notesDelivered
     await injectGroup("steer", groups.steer)
     await injectGroup("queue", groups.queue)
     await injectGroup("preserve", groups.preserve)
+
+    // Page the user, because a note lands in the agent's context either way but
+    // is invisible in OpenChamber's timeline until it renders advisor notices.
+    if (state.notesDelivered > deliveredBefore && this.#config.notify !== "off" && this.#host.notify) {
+      const top = admitted.reduce((best, entry) =>
+        severityRank(entry.severity) > severityRank(best.severity) ? entry : best,
+      )
+      this.#host.notify({
+        title: `Advisor · ${top.severity ?? "note"}`,
+        body: admitted.map((entry) => entry.note).join(" · ").slice(0, 500),
+        sessionID,
+        directory: this.#host.directory,
+        showWhenFocused: this.#config.notify === "always",
+      })
+    }
 
     const prior = state.priorNotes.get(advisor.slug) ?? []
     for (const entry of admitted) prior.push(entry.note)

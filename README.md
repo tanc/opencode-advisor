@@ -123,11 +123,12 @@ Pass these in the `options` object of the `plugins` entry (or via the
 | `discover`           | `true`     | Discover `WATCHDOG.*` files on disk.                                    |
 | `maxToolRounds`      | `6`        | Max tool rounds per review.                                             |
 | `maxTranscriptChars` | `60000`    | Max characters of transcript sent per review.                           |
+| `notify`             | `off`      | `off`/`away`/`always`: also raise an OpenChamber notification per note.  |
 
 Environment overrides (useful when auto-discovered, since discovery passes no
 options): `ADVISOR_ENABLED`, `ADVISOR_MODEL`, `ADVISOR_INSTRUCTIONS`,
 `ADVISOR_MAX_NOTES`, `ADVISOR_SYNC_BACKLOG`, `ADVISOR_IMMUNE_TURNS`,
-`ADVISOR_INCLUDE_THINKING`, `ADVISOR_DISCOVER`.
+`ADVISOR_INCLUDE_THINKING`, `ADVISOR_DISCOVER`, `ADVISOR_NOTIFY`.
 
 ### Model selection
 
@@ -283,6 +284,29 @@ change is entirely on the OpenChamber side:
 Because OpenChamber adds the message on `session.inbox.enqueued`, a notice would
 appear immediately with no model call.
 
+## Notifications (OpenChamber)
+
+Because notes are invisible in OpenChamber's timeline, the advisor can also page
+you. OpenChamber exposes `POST /api/notifications/emit` to plugins running in
+the managed OpenCode, authorized by the agent-tool bearer token:
+
+```ts
+// what the plugin does when a note is delivered and `notify` is not `off`
+await fetch(`${base}/api/notifications/emit`, {
+  method: "POST",
+  headers: { authorization: `Bearer ${process.env.OPENCHAMBER_AGENT_TOOL_TOKEN}` },
+  body: JSON.stringify({ title: "Advisor · concern", body, tag: "advisor", sessionId, directory, showWhenFocused }),
+})
+```
+
+`base` is `OPENCHAMBER_AGENT_TOOL_URL` with its `/api/openchamber/agent-tool`
+suffix removed, falling back to the URL's origin — so a deployment that adds a
+path prefix keeps it. Set `notify` to `away` (only while OpenChamber is not
+focused; the server's default) or `always` (`showWhenFocused: true`). The route
+is rate limited to 10 notifications per 10 s and respects the
+`nativeNotificationsEnabled` setting. Outside OpenChamber the environment
+variables are absent and the call is skipped.
+
 ## Verified
 
 Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
@@ -301,7 +325,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   custom providers), which the model resolver handles by falling back to the
   default with a warning.
 
-61 unit/integration tests cover the emission guard, delivery routing, transcript
+68 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -318,7 +342,7 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 61 unit/integration tests
+bun test        # 68 unit/integration tests
 bunx tsc --noEmit
 ```
 

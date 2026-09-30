@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { AdvisorConfig } from "../plugin/config.ts"
-import { AdvisorEngine, type EngineHost, type InjectInput, type ModelRef } from "../plugin/engine.ts"
+import { AdvisorEngine, type EngineHost, type InjectInput, type ModelRef, type NotifyInput } from "../plugin/engine.ts"
 import type { SessionMessage } from "../plugin/transcript.ts"
 
 function makeConfig(over: Partial<AdvisorConfig> = {}): AdvisorConfig {
@@ -13,6 +13,7 @@ function makeConfig(over: Partial<AdvisorConfig> = {}): AdvisorConfig {
     includeThinking: true,
     maxToolRounds: 6,
     maxTranscriptChars: 60_000,
+    notify: "off",
     watchdogBlocks: [],
     warnings: [],
     ...over,
@@ -235,6 +236,55 @@ describe("AdvisorEngine", () => {
     host.responses.push('{"notes":[]}')
     await engine.review("s1", false)
     expect(engine.status("s1").lastOutcome).toBe("no notes")
+    engine.dispose()
+  })
+
+  test("notifies once when a note is delivered", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    const calls: NotifyInput[] = []
+    host.notify = (input) => {
+      calls.push(input)
+    }
+    host.responses.push('{"notes":[{"severity":"concern","note":"Guard the empty case"}]}')
+    const engine = new AdvisorEngine(makeConfig({ notify: "away" }), host)
+
+    await engine.review("s1", false)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.title).toBe("Advisor · concern")
+    expect(calls[0]!.body).toContain("Guard the empty case")
+    expect(calls[0]!.showWhenFocused).toBe(false)
+    expect(calls[0]!.directory).toBe("/repo")
+    engine.dispose()
+  })
+
+  test("never notifies when notifications are off", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    let calls = 0
+    host.notify = () => {
+      calls += 1
+    }
+    host.responses.push('{"notes":[{"severity":"blocker","note":"Stop"}]}')
+    const engine = new AdvisorEngine(makeConfig({ notify: "off" }), host)
+
+    await engine.review("s1", false)
+
+    expect(calls).toBe(0)
+    engine.dispose()
+  })
+
+  test("notify always asks to show while focused", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    const calls: NotifyInput[] = []
+    host.notify = (input) => {
+      calls.push(input)
+    }
+    host.responses.push('{"notes":[{"severity":"concern","note":"Note"}]}')
+    const engine = new AdvisorEngine(makeConfig({ notify: "always" }), host)
+
+    await engine.review("s1", false)
+
+    expect(calls[0]!.showWhenFocused).toBe(true)
     engine.dispose()
   })
 
