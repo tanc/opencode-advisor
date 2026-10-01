@@ -24,12 +24,12 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 96 tests, no network and no real model |
+| `test/*.test.ts` | 98 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 96 tests
+bun test              # 98 tests
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
@@ -73,6 +73,8 @@ bunx tsc --noEmit     # both must be green before any commit
    or a model call that fails, delivers one notice per distinct failure and records
    `modelWarning` for `/advisor status`. Silence must mean "nothing to report", never
    "failing quietly".
+8. **A nit cannot outlive its turn.** Nits are dropped on a settled turn; a concern or
+   blocker still lands.
 
 ## Platform constraints (learned the hard way)
 

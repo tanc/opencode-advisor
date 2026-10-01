@@ -125,7 +125,7 @@ describe("AdvisorEngine", () => {
   test("runs the read tool loop before advising", async () => {
     const host = makeHost("/repo", [user, midwork])
     host.responses.push('{"tool":"read","input":{"path":"src/foo.ts"}}')
-    host.responses.push('{"notes":[{"severity":"nit","note":"Simpler approach available"}]}')
+    host.responses.push('{"notes":[{"severity":"concern","note":"Simpler approach available"}]}')
     const engine = new AdvisorEngine(makeConfig(), host)
 
     await engine.review("s1", false)
@@ -139,7 +139,7 @@ describe("AdvisorEngine", () => {
   test("respects the per-advisor note budget", async () => {
     const host = makeHost("/repo", [user, midwork])
     host.responses.push(
-      '{"notes":[{"severity":"nit","note":"one"},{"severity":"nit","note":"two"},{"severity":"nit","note":"three"}]}',
+      '{"notes":[{"severity":"concern","note":"one"},{"severity":"concern","note":"two"},{"severity":"concern","note":"three"}]}',
     )
     const config = makeConfig({
       advisors: [{ name: "Advisor", slug: "advisor", enabled: true, tools: [], maxNotesPerUpdate: 2 }],
@@ -428,6 +428,31 @@ describe("AdvisorEngine", () => {
     await engine.review("s1", false)
     expect(host.injections).toHaveLength(0)
     expect(engine.status("s1").modelWarning).toBeUndefined()
+    engine.dispose()
+  })
+
+  test("a nit does not survive a settled turn", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    host.responses.push('{"notes":[{"severity":"nit","note":"Consider renaming the flag"}]}')
+    await engine.review("s1", false)
+    expect(host.injections).toHaveLength(0)
+
+    // The same note while a turn is running still shapes the next step.
+    host.responses.push('{"notes":[{"severity":"nit","note":"Consider renaming the flag"}]}')
+    await engine.review("s1", true)
+    expect(host.injections).toHaveLength(1)
+    engine.dispose()
+  })
+
+  test("a concern still lands after the turn settles", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[{"severity":"concern","note":"The retry loop can spin forever"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+    expect(host.injections).toHaveLength(1)
+    expect(host.injections[0]!.delivery).toBe("queue")
     engine.dispose()
   })
 

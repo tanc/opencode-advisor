@@ -429,6 +429,14 @@ export class AdvisorEngine {
     const admitted: { note: string; severity?: Severity; channel: DeliveryChannel }[] = []
     for (const note of notes) {
       const severity = note.severity
+      // A nit is "a non-interrupting aside at the next step boundary". With no
+      // running turn there is no next step boundary, so the aside can only
+      // arrive stale: it would sit in the inbox until the next turn and then be
+      // replayed as context about work already settled.
+      if (!streaming && (severity === "nit" || severity === undefined)) {
+        this.#host.log("debug", "advisor nit dropped on a settled turn", { advisor: advisor.name })
+        continue
+      }
       let channel = resolveChannel({
         severity,
         streaming,
