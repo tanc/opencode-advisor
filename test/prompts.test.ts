@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildReviewPrompt, formatAdvisoryBatch, parseAdvisorReply } from "../plugin/prompts.ts"
+import { buildReviewPrompt, buildSystemPrompt, formatAdvisoryBatch, parseAdvisorReply } from "../plugin/prompts.ts"
 
 describe("parseAdvisorReply", () => {
   test("parses a notes response", () => {
@@ -32,6 +32,27 @@ describe("parseAdvisorReply", () => {
 
   test("flags unparseable output", () => {
     expect(parseAdvisorReply("I have no idea").kind).toBe("invalid")
+  })
+})
+
+describe("buildSystemPrompt", () => {
+  test("forbids reviewing the review process", () => {
+    const system = buildSystemPrompt({ advisorName: "Advisor", maxNotes: 4, maxToolRounds: 6, watchdogBlocks: [] })
+    expect(system).toContain("NEVER review the review process")
+    expect(system).toContain("is not work to review")
+  })
+
+  test("appends watchdog blocks and the per-advisor specialization", () => {
+    const system = buildSystemPrompt({
+      advisorName: "Security",
+      maxNotes: 2,
+      maxToolRounds: 3,
+      advisorInstructions: "Focus on authz",
+      watchdogBlocks: ["<watchdog>raise blockers early</watchdog>"],
+    })
+    expect(system).toContain('<specialization advisor="Security">')
+    expect(system).toContain("Focus on authz")
+    expect(system).toContain("<watchdog>raise blockers early</watchdog>")
   })
 })
 
