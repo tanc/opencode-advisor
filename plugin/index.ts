@@ -124,6 +124,23 @@ export default Plugin.define({
         const message = await ctx.session.synthetic({ sessionID, text, description, metadata: metadata as never, delivery, resume })
         return message?.id
       },
+      async getSession(sessionID) {
+        // Used to decide whether a session is worth reviewing at all, and to
+        // refuse sessions that belong to another location: a reviewer jailed to
+        // the wrong directory would inspect the wrong repository.
+        try {
+          const session = await ctx.session.get({ sessionID })
+          if (!session) return undefined
+          return { agent: session.agent as string | undefined, location: session.location }
+        } catch (err) {
+          console.warn(`[advisor] session lookup failed: ${(err as Error).message}`)
+          return undefined
+        }
+      },
+      async listAgents() {
+        const list = await ctx.agent.list()
+        return (list?.data ?? []).map((agent) => ({ id: agent.id, mode: agent.mode, hidden: agent.hidden }))
+      },
       async resolveModel(selector): Promise<ModelRef | undefined> {
         // `ctx.generate.text` resolves models from the location registry, so a
         // selector that is not there cannot be used. Matching is case-insensitive

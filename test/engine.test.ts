@@ -26,6 +26,8 @@ interface FakeHost extends EngineHost {
   listCalls: number
   model?: ModelRef
   generateError?: string
+  session?: { agent?: string; location?: { directory?: string } }
+  agents?: { id: string; mode?: string; hidden?: boolean }[]
 }
 
 function makeHost(directory: string, messages: SessionMessage[]): FakeHost {
@@ -47,6 +49,12 @@ function makeHost(directory: string, messages: SessionMessage[]): FakeHost {
     async inject(input) {
       host.injections.push(input)
       return `msg_${host.injections.length}`
+    },
+    async getSession() {
+      return host.session
+    },
+    async listAgents() {
+      return host.agents ?? []
     },
     async resolveModel(): Promise<ModelRef> {
       return host.model ?? { providerID: "p", id: "m" }
@@ -453,6 +461,59 @@ describe("AdvisorEngine", () => {
     await engine.review("s1", false)
     expect(host.injections).toHaveLength(1)
     expect(host.injections[0]!.delivery).toBe("queue")
+    engine.dispose()
+  })
+
+  test("skips sessions run by auxiliary agents", async () => {
+    const roster = [
+      { id: "build", mode: "primary", hidden: false },
+      { id: "explore", mode: "subagent", hidden: false },
+      { id: "historian", mode: "primary", hidden: true },
+      { id: "dreamer-memory-mapper", mode: "primary", hidden: true },
+    ]
+    for (const agent of ["historian", "dreamer-memory-mapper", "explore"]) {
+      const host = makeHost("/repo", [user, terminal])
+      host.agents = roster
+      host.session = { agent, location: { directory: "/repo" } }
+      host.responses.push('{"notes":[{"severity":"concern","note":"should not run"}]}')
+      const engine = new AdvisorEngine(makeConfig(), host)
+      await engine.review("s1", false)
+      expect(host.prompts).toHaveLength(0)
+      expect(host.injections).toHaveLength(0)
+      engine.dispose()
+    }
+  })
+
+  test("reviews a session run by a visible primary agent", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.agents = [{ id: "build", mode: "primary", hidden: false }]
+    host.session = { agent: "build", location: { directory: "/repo" } }
+    host.responses.push('{"notes":[{"severity":"concern","note":"real advice"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+    expect(host.injections).toHaveLength(1)
+    engine.dispose()
+  })
+
+  test("skips sessions that belong to another location", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.agents = [{ id: "build", mode: "primary", hidden: false }]
+    host.session = { agent: "build", location: { directory: "/elsewhere" } }
+    host.responses.push('{"notes":[{"severity":"concern","note":"wrong repo"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+    expect(host.injections).toHaveLength(0)
+    engine.dispose()
+  })
+
+  test("reviews everything when the agent roster is unusable", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.agents = []
+    host.session = { agent: "build", location: { directory: "/repo" } }
+    host.responses.push('{"notes":[{"severity":"concern","note":"still reviewed"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+    expect(host.injections).toHaveLength(1)
     engine.dispose()
   })
 

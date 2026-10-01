@@ -254,6 +254,23 @@ session.
    that a blocker is far more likely to be churn than signal, and the turn-end pass
    can still raise it.
 
+## Which sessions get reviewed
+
+Only your own work. Before reviewing, the plugin reads the session and skips it when
+the agent is not one you drive:
+
+- **Hidden agents are skipped.** `compaction`, `title`, `summary`, and whatever a
+  companion plugin adds — Magic Context's `historian` and `dreamer-*` sessions are
+  the common case. They run continuously in the background, so reviewing them means
+  producing notes while your own session sits idle.
+- **Subagent sessions are skipped** (`mode: "subagent"`, e.g. `explore`), since a
+  reviewer advising a subagent advises nobody.
+- **Sessions in another location are skipped.** Each instance only reviews work in
+  its own directory, so a reviewer is never jailed to the wrong repository.
+
+The verdict is cached per session for five minutes, and it fails open: an
+unreadable agent roster means everything is reviewed, rather than nothing.
+
 ## Cost, quietness, and safety
 
 - The advisor has its own model usage and cost. Prefer a fast, inexpensive
@@ -349,7 +366,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   custom providers), which the model resolver handles by falling back to the
   default with a warning.
 
-98 unit/integration tests cover the emission guard, delivery routing, transcript
+102 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -365,7 +382,7 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 98 unit/integration tests
+bun test        # 102 unit/integration tests
 bunx tsc --noEmit
 ```
 

@@ -24,12 +24,12 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 98 tests, no network and no real model |
+| `test/*.test.ts` | 102 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 98 tests
+bun test              # 102 tests
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
@@ -75,6 +75,10 @@ bunx tsc --noEmit     # both must be green before any commit
    "failing quietly".
 8. **A nit cannot outlive its turn.** Nits are dropped on a settled turn; a concern or
    blocker still lands.
+9. **Only your work is reviewed.** A session is skipped when its agent is hidden
+   (`historian`, `dreamer-*`, `compaction`, `title`) or subagent-mode (`explore`), or
+   when its location is not this instance's directory. The verdict is cached per
+   session and fails open on an unusable roster.
 
 ## Platform constraints (learned the hard way)
 
@@ -97,6 +101,16 @@ bunx tsc --noEmit     # both must be green before any commit
   10 per 10 s; away-only unless `showWhenFocused` is set.
 - The OpenCode server needs auth: HTTP Basic `opencode:$OPENCODE_SERVER_PASSWORD`.
   `opencode api` does **not** stream SSE — use `curl -N` for event capture.
+- Agents carry `mode` (`primary` / `subagent` / `all`) and `hidden`; companion plugins
+  add hidden primary agents that run background sessions (Magic Context's `historian`
+  and `dreamer-*`, which alone accounted for ~18 of the 40 most recent sessions on this
+  machine). Reviewing those is what makes the advisor look like it never stops.
+- **Two OpenCode servers can be running at once** — OpenChamber's managed service and
+  the desktop app's own bundled CLI (`~/.config/openchamber/managed-opencode/<pid>.json`).
+  Because `OPENCODE_CONFIG` is additive, both read the global config and both load the
+  plugin, so duplication can span processes, where only a file-based claim could
+  coordinate it. `/advisor status` reports the live instance count for one process;
+  it cannot see the other.
 - `ctx.session.hook(name, cb)` accepts a plain `async` callback and **does not validate
   the name**: a deliberately bogus name (`definitely-not-a-hook`) loads exactly like a
   real one, so a typo fails silently rather than loudly. A hook on `"context"` was

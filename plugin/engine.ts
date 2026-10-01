@@ -54,6 +54,10 @@ export interface EngineHost {
   inject(input: InjectInput): Promise<string | undefined>
   /** Resolve a `provider/model#variant` selector (or the default) to a usable model. */
   resolveModel(selector: string | undefined): Promise<ModelRef | undefined>
+  /** The session's own agent and location; absent means "review everything". */
+  getSession?(sessionID: string): Promise<{ agent?: string; location?: { directory?: string } } | undefined>
+  /** The agent roster, so auxiliary agents can be skipped. */
+  listAgents?(): Promise<{ id: string; mode?: string; hidden?: boolean }[]>
   /** Persist a per-session enable override so it survives a plugin reload. */
   onSessionOverride?(sessionID: string, enabled: boolean | undefined): Promise<void> | void
   /** Raise a user-facing notification (OpenChamber only; a no-op elsewhere). */
@@ -110,6 +114,8 @@ const MIDTURN_MIN_INTERVAL_MS = 30_000
 /** Ceiling on delivered blockers per user turn: past this a blocker is far more
  *  likely to be churn than signal, and the turn-end pass can re-raise it. */
 const MAX_BLOCKERS_PER_USER_TURN = 2
+/** How long a session's reviewability verdict is trusted. */
+const SESSION_FILTER_TTL_MS = 5 * 60_000
 const PRIOR_NOTE_LIMIT = 40
 /** Safety net: at most this many steering wake-ups per user turn, so a
  *  confused reviewer cannot loop the primary indefinitely. */
@@ -125,6 +131,8 @@ export class AdvisorEngine {
   #sessions = new Map<string, SessionState>()
   #abort = new AbortController()
   #sessionOrder: string[] = []
+  #reviewable = new Map<string, { ok: boolean; at: number }>()
+  #agents?: { at: number; reviewable?: Set<string> }
 
   constructor(config: AdvisorConfig, host: EngineHost) {
     this.#config = config
@@ -238,6 +246,55 @@ export class AdvisorEngine {
     }
   }
 
+  /**
+   * Whether this session is worth reviewing at all.
+   *
+   * Auxiliary work is not: Magic Context and friends run historian, dreamer,
+   * compaction and title sessions continuously — hidden agents, plus subagents
+   * like `explore` — so reviewing them produces notes while the user's own
+   * session sits idle, which is exactly how the advisor came to look like it
+   * would not stop. Sessions outside this instance's location are skipped for
+   * the same reason: their reviewer would inspect the wrong repository.
+   *
+   * Fails open: a host without the lookups, or an empty agent roster, reviews
+   * everything rather than silently reviewing nothing.
+   */
+  async #isReviewable(sessionID: string): Promise<boolean> {
+    if (!this.#host.getSession) return true
+    const now = Date.now()
+    const cached = this.#reviewable.get(sessionID)
+    if (cached && now - cached.at < SESSION_FILTER_TTL_MS) return cached.ok
+    let ok = true
+    try {
+      const session = await this.#host.getSession(sessionID)
+      // An unknown session is not evidence of auxiliary work: skip only what
+      // this lookup positively identifies as someone else's or not worth it.
+      if (session) {
+        const theirs = resolvedDirectory(session.location?.directory)
+        const ours = resolvedDirectory(this.#host.directory)
+        ok = (theirs === undefined || ours === undefined || theirs === ours) && (await this.#isReviewableAgent(session.agent))
+      }
+    } catch (err) {
+      this.#host.log("warn", "advisor session lookup failed", { error: (err as Error).message })
+    }
+    this.#reviewable.set(sessionID, { ok, at: now })
+    return ok
+  }
+
+  async #isReviewableAgent(agentID: string | undefined): Promise<boolean> {
+    if (!this.#host.listAgents || agentID === undefined) return true
+    const now = Date.now()
+    if (!this.#agents || now - this.#agents.at > SESSION_FILTER_TTL_MS) {
+      const list = await this.#host.listAgents()
+      const reviewable = new Set(
+        list.filter((agent) => agent.mode === "primary" && agent.hidden !== true).map((agent) => agent.id),
+      )
+      // An empty roster means "could not tell", not "nothing is reviewable".
+      this.#agents = { at: now, reviewable: reviewable.size > 0 ? reviewable : undefined }
+    }
+    return this.#agents.reviewable === undefined || this.#agents.reviewable.has(agentID)
+  }
+
   #schedule(sessionID: string, streaming: boolean): void {
     const state = this.#state(sessionID)
     if (!state.timer && !state.reviewInProgress) state.backlog += 1
@@ -261,6 +318,10 @@ export class AdvisorEngine {
 
   async review(sessionID: string, streaming: boolean): Promise<void> {
     const state = this.#state(sessionID)
+    if (!(await this.#isReviewable(sessionID))) {
+      state.backlog = 0
+      return
+    }
     if (!this.#isEnabled(sessionID)) {
       state.backlog = 0
       return
