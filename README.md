@@ -137,9 +137,20 @@ options): `ADVISOR_ENABLED`, `ADVISOR_MODEL`, `ADVISOR_INSTRUCTIONS`,
 `ctx.generate.text` resolves models from the location's model registry. Custom
 providers defined **only** in `opencode.json` (for example a private
 OpenAI-compatible endpoint) are *not* in that registry and cannot be used for
-plugin generation, even though a session can run on them. If the configured
-selector is not available, the advisor logs a warning and falls back to the
-default model — so review still works everywhere.
+plugin generation, even though a session can run on them.
+
+The selector is `provider/model`, with `provider` and `model` matched
+case-insensitively and resolved back to the registry's own spelling. That
+matters in practice: model pickers display names like `GLM-5.3-Flash` while the
+id is `glm-5.3-flash`, and a selector that does not match leaves the advisor
+unable to run at all. Write the id when you can, and let the case-insensitivity
+cover the rest.
+
+If the configured selector cannot be resolved, the advisor **says so in the
+session** (once per distinct failure) and in `/advisor status`, then falls back
+to the location default. A reviewer that cannot call its model must never be
+indistinguishable from one with nothing to say — silence is a valid outcome,
+failing silently is not.
 
 ## Give the reviewer project-specific priorities
 
@@ -336,7 +347,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   custom providers), which the model resolver handles by falling back to the
   default with a warning.
 
-85 unit/integration tests cover the emission guard, delivery routing, transcript
+96 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -352,7 +363,7 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 85 unit/integration tests
+bun test        # 96 unit/integration tests
 bunx tsc --noEmit
 ```
 

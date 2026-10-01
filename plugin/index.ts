@@ -15,7 +15,8 @@
  */
 import { Plugin } from "@opencode/plugin"
 import { resolveConfig, type AdvisorOptions } from "./config.ts"
-import { AdvisorEngine, parseSelector, type AdvisorEvent, type EngineHost, type ModelRef, type NotifyInput } from "./engine.ts"
+import { AdvisorEngine, type AdvisorEvent, type EngineHost, type ModelRef, type NotifyInput } from "./engine.ts"
+import { matchModel, type RegistryModel } from "./model.ts"
 import type { SessionMessage } from "./transcript.ts"
 
 const AGENT_TOOL_SUFFIX = "/api/openchamber/agent-tool"
@@ -120,25 +121,30 @@ export default Plugin.define({
         return message?.id
       },
       async resolveModel(selector): Promise<ModelRef | undefined> {
-        // `ctx.generate.text` resolves models from the location registry. A
-        // selector that is not present there (for example a provider defined
-        // only in config) cannot be used, so fall back to the default model.
+        // `ctx.generate.text` resolves models from the location registry, so a
+        // selector that is not there cannot be used. Matching is case-insensitive
+        // and canonicalises to the registry's own spelling, because pickers show
+        // display names ("GLM-5.3-Flash") while ids are often lowercase.
         try {
           const list = await ctx.model.list()
-          const available = (list?.data ?? []) as { providerID: string; id: string }[]
-          if (selector) {
-            const parsed = parseSelector(selector)
-            if (parsed) {
-              const match = available.find((m) => m.providerID === parsed.providerID && m.id === parsed.id)
-              if (match) return { providerID: match.providerID, id: match.id, variant: parsed.variant }
-              console.warn(`[advisor] model "${selector}" is not available to plugin generation; using the default model instead`)
-            } else {
-              console.warn(`[advisor] ignoring invalid model selector "${selector}" (expected provider/model)`)
-            }
+          const available = (list?.data ?? []) as RegistryModel[]
+          const withDefault = async (warning?: string): Promise<ModelRef | undefined> => {
+            const model = (await ctx.model.default())?.data
+            if (!model) return undefined
+            const reachable = available.some(
+              (m) => m.providerID === model.providerID && (m.id === model.id || m.modelID === model.id),
+            )
+            const notes = [
+              warning,
+              reachable ? undefined : `the location default "${model.providerID}/${model.id}" is not in this location's registry either`,
+            ].filter((note): note is string => note !== undefined)
+            return { providerID: model.providerID, id: model.id, warning: notes.length > 0 ? notes.join("; ") : undefined }
           }
-          const fallback = await ctx.model.default()
-          const model = fallback?.data
-          return model ? { providerID: model.providerID, id: model.id } : undefined
+          if (!selector) return await withDefault()
+          const { model, warning } = matchModel(available, selector)
+          if (model) return model
+          if (warning) console.warn(`[advisor] ${warning}; using the default model instead`)
+          return await withDefault(warning)
         } catch (err) {
           console.warn(`[advisor] model resolution failed: ${(err as Error).message}`)
           return undefined
@@ -231,6 +237,7 @@ export default Plugin.define({
                   : " · no review yet"),
             )
             if (status.lastError) lines.push(`Last error: ${status.lastError}`)
+            if (status.modelWarning) lines.push(`! ${status.modelWarning}`)
             if (isDump) {
               for (const a of status.advisors) {
                 if (a.items.length === 0) continue

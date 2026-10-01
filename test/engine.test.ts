@@ -24,6 +24,8 @@ interface FakeHost extends EngineHost {
   prompts: string[]
   responses: string[]
   listCalls: number
+  model?: ModelRef
+  generateError?: string
 }
 
 function makeHost(directory: string, messages: SessionMessage[]): FakeHost {
@@ -39,6 +41,7 @@ function makeHost(directory: string, messages: SessionMessage[]): FakeHost {
     },
     async generate({ prompt }) {
       host.prompts.push(prompt)
+      if (host.generateError) throw new Error(host.generateError)
       return host.responses.shift() ?? '{"notes":[]}'
     },
     async inject(input) {
@@ -46,7 +49,7 @@ function makeHost(directory: string, messages: SessionMessage[]): FakeHost {
       return `msg_${host.injections.length}`
     },
     async resolveModel(): Promise<ModelRef> {
-      return { providerID: "p", id: "m" }
+      return host.model ?? { providerID: "p", id: "m" }
     },
     log() {},
   }
@@ -379,6 +382,52 @@ describe("AdvisorEngine", () => {
       await engine.review("s1", true)
     }
     expect(host.injections).toHaveLength(2)
+    engine.dispose()
+  })
+
+  test("says so once when the configured model cannot be resolved", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.model = { providerID: "p", id: "m", warning: 'the configured model "opencode-go/GLM-5.3-Flash" is not in provider "opencode-go"' }
+    host.responses.push('{"notes":[]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    const notices = host.injections.filter((i) => (i.metadata as { advisor?: { kind?: string } })?.advisor?.kind === "notice")
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.delivery).toBe("queue")
+    expect(notices[0]!.resume).toBe(false)
+    expect(notices[0]!.text).toContain("not in provider")
+    expect(engine.status("s1").modelWarning).toContain("not in provider")
+
+    host.responses.push('{"notes":[]}')
+    await engine.review("s1", false)
+    expect(host.injections.filter((i) => (i.metadata as { advisor?: { kind?: string } })?.advisor?.kind === "notice")).toHaveLength(1)
+    engine.dispose()
+  })
+
+  test("says so once when the reviewer's model call fails", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.generateError = "Model unavailable: opencode-go/GLM-5.3-Flash"
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    const notices = host.injections.filter((i) => (i.metadata as { advisor?: { kind?: string } })?.advisor?.kind === "notice")
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.text).toContain("Model unavailable")
+
+    await engine.review("s1", false)
+    expect(host.injections).toHaveLength(1)
+    expect(engine.status("s1").lastOutcome).toBe("model error")
+    engine.dispose()
+  })
+
+  test("says nothing extra when the model resolves cleanly", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+    expect(host.injections).toHaveLength(0)
+    expect(engine.status("s1").modelWarning).toBeUndefined()
     engine.dispose()
   })
 

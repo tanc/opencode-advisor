@@ -24,12 +24,9 @@ import type { AdvisorConfig, AdvisorSpec } from "./config.ts"
 import { DEFAULT_TOOLS } from "./config.ts"
 import { renderDelta, type SessionMessage } from "./transcript.ts"
 import { runTool } from "./tools.ts"
+import { parseSelector, type ModelRef } from "./model.ts"
 
-export interface ModelRef {
-  providerID: string
-  id: string
-  variant?: string
-}
+export { parseSelector, type ModelRef } from "./model.ts"
 
 export interface AdvisorEvent {
   type?: string
@@ -97,6 +94,10 @@ interface SessionState {
   steersSinceUser: number
   /** Blockers delivered inside the current user turn (see the per-turn cap). */
   blockersThisUserTurn: number
+  /** Why the configured reviewer model could not be used, if it could not. */
+  lastModelWarning?: string
+  /** Failure notices already delivered, so a broken reviewer is loud once. */
+  noticesSent: Set<string>
 }
 
 const DEBOUNCE_MS = 350
@@ -155,6 +156,7 @@ export class AdvisorEngine {
         userMessageCount: 0,
         steersSinceUser: 0,
         blockersThisUserTurn: 0,
+        noticesSent: new Set<string>(),
       }
       this.#sessions.set(sessionID, state)
       this.#sessionOrder.push(sessionID)
@@ -333,6 +335,12 @@ export class AdvisorEngine {
     state: SessionState,
   ): Promise<number> {
     const model = await this.#host.resolveModel(advisor.model ?? this.#config.model)
+    state.lastModelWarning = model?.warning
+    if (model?.warning) {
+      const resolved = model.providerID + " at " + model.id
+      const text = "Advisor: " + model.warning + ". Reviews are using " + resolved + " instead; run the advisor status command for details."
+      await this.#noticeOnce(state, sessionID, model.warning, text)
+    }
 
     const guard = state.guards.get(advisor.slug) ?? new EmissionGuard({ budgetPerUpdate: advisor.maxNotesPerUpdate ?? this.#config.sharedMaxNotesPerUpdate })
     state.guards.set(advisor.slug, guard)
@@ -362,9 +370,16 @@ export class AdvisorEngine {
       try {
         text = await this.#host.generate({ model, prompt, signal: this.#abort.signal })
       } catch (err) {
-        state.lastError = (err as Error).message
-        this.#host.log("warn", "advisor model call failed", { advisor: advisor.name, error: (err as Error).message })
+        const message = (err as Error).message
+        state.lastError = message
+        this.#host.log("warn", "advisor model call failed", { advisor: advisor.name, error: message })
         state.lastOutcome = "model error"
+        await this.#noticeOnce(
+          state,
+          sessionID,
+          `error:${message}`,
+          `Advisor: the reviewer's model call failed (${message}), so this session is getting no advice. /advisor status has the details.`,
+        )
         return 0
       }
       const reply = parseAdvisorReply(text)
@@ -496,6 +511,29 @@ export class AdvisorEngine {
   }
 
   /**
+   * Tell the session once about a failure that otherwise leaves no trace. A
+   * reviewer that cannot call its model is indistinguishable from one with
+   * nothing to say, so "nothing happened" must never mean "it has been failing
+   * all along". Keyed by message, so a *different* failure still speaks up.
+   */
+  async #noticeOnce(state: SessionState, sessionID: string, key: string, text: string): Promise<void> {
+    if (state.noticesSent.has(key)) return
+    state.noticesSent.add(key)
+    try {
+      await this.#host.inject({
+        sessionID,
+        text,
+        description: "advisor notice",
+        metadata: { advisor: { kind: "notice" } },
+        delivery: "queue",
+        resume: false,
+      })
+    } catch (err) {
+      this.#host.log("warn", "advisor notice failed", { error: (err as Error).message })
+    }
+  }
+
+  /**
    * Withdraw earlier notes silently. A retraction is bookkeeping: the agent
    * must never pay an interruption for the reviewer changing its mind, and the
    * note must stop being replayed as a tombstone.
@@ -543,6 +581,8 @@ export class AdvisorEngine {
     lastNoteCount: number
     lastOutcome?: string
     lastError?: string
+    /** Why the configured reviewer model could not be used, if it could not. */
+    modelWarning?: string
   } {
     const state = this.#state(sessionID)
     const enabled = this.#isEnabled(sessionID)
@@ -569,6 +609,7 @@ export class AdvisorEngine {
       lastNoteCount: state.lastNoteCount,
       lastOutcome: state.lastOutcome,
       lastError: state.lastError,
+      modelWarning: state.lastModelWarning,
     }
   }
 
@@ -605,15 +646,4 @@ function normalizeKey(note: string): string {
 
 function scheduleMicrotask(fn: () => void): void {
   queueMicrotask(fn)
-}
-
-/** Parse `provider/model#variant` into a model reference. */
-export function parseSelector(selector: string): ModelRef | undefined {
-  const trimmed = selector.trim()
-  const hash = trimmed.indexOf("#")
-  const base = hash === -1 ? trimmed : trimmed.slice(0, hash)
-  const variant = hash === -1 ? undefined : trimmed.slice(hash + 1).trim() || undefined
-  const slash = base.indexOf("/")
-  if (slash <= 0 || slash === base.length - 1) return undefined
-  return { providerID: base.slice(0, slash).trim(), id: base.slice(slash + 1).trim(), variant }
 }

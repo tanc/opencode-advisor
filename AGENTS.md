@@ -20,15 +20,16 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/index.ts` | `Plugin.define`, event subscription, the `/advisor` command, and the host: synthetic injection, model resolution, notifications, `ctx.storage` |
 | `plugin/engine.ts` | observation → review → delivery; session state; routing; backlog |
 | `plugin/guard.ts` | `EmissionGuard` (noise, duplicates, per-update budget) and `resolveChannel` (delivery routing) |
+| `plugin/model.ts` | reviewer model selection: selector parsing and registry matching |
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 85 tests, no network and no real model |
+| `test/*.test.ts` | 96 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 85 tests
+bun test              # 96 tests
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
@@ -68,13 +69,20 @@ bunx tsc --noEmit     # both must be green before any commit
    `ctx.model.list()` and fall back to `ctx.model.default()` with a warning.
 6. **A `blocker` notification forces `showWhenFocused`**, so a critical finding is not
    hidden by the away-only focus gate.
+7. **A reviewer that cannot run says so.** A model selector that cannot be resolved,
+   or a model call that fails, delivers one notice per distinct failure and records
+   `modelWarning` for `/advisor status`. Silence must mean "nothing to report", never
+   "failing quietly".
 
 ## Platform constraints (learned the hard way)
 
 - `ctx.generate.text` takes **`{ prompt, model }` only** — no `system` field, no cache
-  controls — and resolves models **solely from `ctx.model.list()`**. Providers defined
-  only in `opencode.json` (e.g. `bifrost`) are not in that registry and fail with
-  `Model unavailable`; fall back to `ctx.model.default()`.
+  controls — and resolves models **solely from `ctx.model.list()`**, matched against
+  the registry's exact ids and case-sensitively at the platform level. Custom
+  providers defined only in `opencode.json` (e.g. `bifrost`) are absent from that
+  registry. `plugin/model.ts` matches case-insensitively on `id`/`modelID` and
+  returns the registry's canonical spelling, so a display-name-shaped selector
+  (`GLM-5.3-Flash` for id `glm-5.3-flash`) still resolves.
 - **Plugin commands return `void`.** There is no output channel, so `/advisor` replies
   via `ctx.session.synthetic`.
 - **OpenChamber renders only `user`, `assistant`, and the notices `compaction` / `shell`.**
