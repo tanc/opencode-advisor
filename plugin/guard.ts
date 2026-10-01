@@ -12,6 +12,15 @@
 export type Severity = "nit" | "concern" | "blocker"
 export const SEVERITIES: readonly Severity[] = ["nit", "concern", "blocker"]
 
+/** Whether two notes are the same advice, allowing for rewording. */
+export function isSameNote(a: string, b: string): boolean {
+  const keyA = normalizeNote(a)
+  const keyB = normalizeNote(b)
+  if (!keyA || !keyB) return false
+  if (keyA === keyB) return true
+  return isNearDuplicate(tokensOf(keyA), tokensOf(keyB))
+}
+
 export interface Note {
   note: string
   severity?: Severity

@@ -333,6 +333,55 @@ describe("AdvisorEngine", () => {
     engine.dispose()
   })
 
+  test("grounds each pass in the whole current turn, not just the last step", async () => {
+    const messages: SessionMessage[] = [user, midwork]
+    const host = makeHost("/repo", messages)
+    host.responses.push('{"notes":[{"severity":"nit","note":"one"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", true)
+
+    messages.push({ id: "m7", type: "assistant", finish: "tool-calls", content: [{ type: "text", text: "second step" }] })
+    host.responses.push('{"notes":[]}')
+    await engine.review("s1", true)
+
+    // A one-step slice would have started after the tool call; the turn's user
+    // message is what keeps a mid-turn reviewer from reasoning off partial evidence.
+    expect(host.prompts[1]).toContain("do the thing")
+    engine.dispose()
+  })
+
+  test("applies a retraction silently and stops replaying the note", async () => {
+    const messages: SessionMessage[] = [user, terminal]
+    const host = makeHost("/repo", messages)
+    const note = "Reconsider the merge direction before pushing"
+    host.responses.push(`{"notes":[{"severity":"blocker","note":"${note}"}]}`)
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+    expect(host.injections).toHaveLength(1)
+
+    messages.push({ id: "m8", type: "assistant", finish: "stop", content: [{ type: "text", text: "more" }] })
+    host.responses.push(`{"retractions":["${note}"],"notes":[]}`)
+    await engine.review("s1", false)
+    expect(host.injections).toHaveLength(1)
+
+    messages.push({ id: "m9", type: "assistant", finish: "stop", content: [{ type: "text", text: "more" }] })
+    host.responses.push('{"notes":[]}')
+    await engine.review("s1", false)
+    expect(host.prompts[2]).not.toContain("<already-raised>")
+    engine.dispose()
+  })
+
+  test("caps delivered blockers per user turn", async () => {
+    const host = makeHost("/repo", [user, midwork])
+    const engine = new AdvisorEngine(makeConfig(), host)
+    for (let i = 0; i < 3; i++) {
+      host.responses.push(`{"notes":[{"severity":"blocker","note":"blocker number ${i}"}]}`)
+      await engine.review("s1", true)
+    }
+    expect(host.injections).toHaveLength(2)
+    engine.dispose()
+  })
+
   test("a note never resumes an idle session", async () => {
     const host = makeHost("/repo", [user, terminal])
     host.responses.push('{"notes":[{"severity":"blocker","note":"Stop and fix the schema"}]}')

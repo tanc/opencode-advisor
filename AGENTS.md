@@ -23,19 +23,21 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 70 tests, no network and no real model |
+| `test/*.test.ts` | 85 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 70 tests
+bun test              # 85 tests
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
 ## Architecture
 
 - **Events are triggers, not data.** A review is pull-based: read the authoritative
-  transcript (`ctx.session.context`), slice from `reviewedCount`, render the delta.
+  transcript (`ctx.session.context`) and render from the start of the current turn
+  (bounded by `maxTranscriptChars`), so a mid-turn pass sees the whole turn rather
+  than the single step that triggered it.
   A missed event costs latency, never correctness.
 - **The reviewer is one stateless `ctx.generate.text` call.** That API executes no
   tools, so the plugin runs the inspection loop itself: the reviewer replies with
@@ -55,11 +57,16 @@ bunx tsc --noEmit     # both must be green before any commit
    steered. This is the guard against the advisor driving the agent.
    (`guard.test.ts`, `"a note never resumes an idle session"`.)
 2. **Advisories are never reviewed** — `isAdvisorMessage` filters them out of the delta.
-3. **Every review is bounded** — per-update note budget, per-user-turn steering cap
-   (4), noise and duplicate suppression.
-4. **Model resolution is validated**, never trusted: selectors are checked against
+3. **Every review is bounded** — each pass sees the whole current turn (a one-step
+   slice is partial evidence, and partial evidence produces false claims), notes are
+   budgeted per update, at most two blockers are delivered per user turn, mid-turn
+   reviews are floored at 30 s, and noise and reworded repeats are suppressed.
+4. **The reviewer pays for being wrong, not the agent** — a `retractions` reply
+   withdraws an earlier note silently, so a corrected misread never becomes an
+   interruption and never gets replayed as a tombstone.
+5. **Model resolution is validated**, never trusted: selectors are checked against
    `ctx.model.list()` and fall back to `ctx.model.default()` with a warning.
-5. **A `blocker` notification forces `showWhenFocused`**, so a critical finding is not
+6. **A `blocker` notification forces `showWhenFocused`**, so a critical finding is not
    hidden by the away-only focus gate.
 
 ## Platform constraints (learned the hard way)

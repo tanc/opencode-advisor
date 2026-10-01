@@ -30,6 +30,13 @@ describe("parseAdvisorReply", () => {
     expect(reply.notes).toEqual([{ note: "d", severity: undefined }])
   })
 
+  test("parses a silent retraction", () => {
+    const reply = parseAdvisorReply('{"retractions":["the earlier note"],"notes":[]}')
+    expect(reply.kind).toBe("notes")
+    expect(reply.notes).toEqual([])
+    expect(reply.retractions).toEqual(["the earlier note"])
+  })
+
   test("flags unparseable output", () => {
     expect(parseAdvisorReply("I have no idea").kind).toBe("invalid")
   })
@@ -40,6 +47,14 @@ describe("buildSystemPrompt", () => {
     const system = buildSystemPrompt({ advisorName: "Advisor", maxNotes: 4, maxToolRounds: 6, watchdogBlocks: [] })
     expect(system).toContain("NEVER review the review process")
     expect(system).toContain("is not work to review")
+  })
+
+  test("forbids asserting state it has not fetched, and offers retraction", () => {
+    const system = buildSystemPrompt({ advisorName: "Advisor", maxNotes: 4, maxToolRounds: 6, watchdogBlocks: [] })
+    expect(system).toContain("NEVER assert repository state you have not fetched in this pass")
+    expect(system).toContain("partial evidence")
+    expect(system).toContain("retraction")
+    expect(system).toContain('"retractions"')
   })
 
   test("appends watchdog blocks and the per-advisor specialization", () => {

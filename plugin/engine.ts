@@ -4,13 +4,15 @@
  *
  * Observation is pull-based. The engine subscribes to the event stream only as
  * a trigger (`session.idle`, `session.step.ended`, ...); when triggered it reads
- * the authoritative transcript with `ctx.session.context` and reviews only the
- * slice it has not seen. The reviewer itself is a stateless `ctx.generate.text`
+ * the authoritative transcript with `ctx.session.context` and reviews the current
+ * turn from its start, so a mid-turn pass is never reasoning off one step. The
+ * reviewer itself is a stateless `ctx.generate.text`
  * call with a small JSON protocol, so it can request `read`/`grep`/`glob` before
  * advising without ever mutating the session or the repository.
  */
 import {
   EmissionGuard,
+  isSameNote,
   resolveChannel,
   severityRank,
   type DeliveryChannel,
@@ -93,9 +95,17 @@ interface SessionState {
   backlog: number
   userMessageCount: number
   steersSinceUser: number
+  /** Blockers delivered inside the current user turn (see the per-turn cap). */
+  blockersThisUserTurn: number
 }
 
 const DEBOUNCE_MS = 350
+/** Floor between mid-turn reviews: advice about a turn that is still moving is
+ *  worth less the more of it there is, and a fast agent outruns the reviewer. */
+const MIDTURN_MIN_INTERVAL_MS = 30_000
+/** Ceiling on delivered blockers per user turn: past this a blocker is far more
+ *  likely to be churn than signal, and the turn-end pass can re-raise it. */
+const MAX_BLOCKERS_PER_USER_TURN = 2
 const PRIOR_NOTE_LIMIT = 40
 /** Safety net: at most this many steering wake-ups per user turn, so a
  *  confused reviewer cannot loop the primary indefinitely. */
@@ -144,6 +154,7 @@ export class AdvisorEngine {
         backlog: 0,
         userMessageCount: 0,
         steersSinceUser: 0,
+        blockersThisUserTurn: 0,
       }
       this.#sessions.set(sessionID, state)
       this.#sessionOrder.push(sessionID)
@@ -226,10 +237,15 @@ export class AdvisorEngine {
     const state = this.#state(sessionID)
     if (!state.timer && !state.reviewInProgress) state.backlog += 1
     if (state.timer) clearTimeout(state.timer)
+    // Mid-turn work is reviewed at most once per interval; later triggers ride
+    // along with the pending one instead of stacking a note every step.
+    const since = state.lastReviewAt === undefined ? Number.POSITIVE_INFINITY : Date.now() - state.lastReviewAt
+    const gap = streaming ? MIDTURN_MIN_INTERVAL_MS - since : 0
+    const delay = Math.max(DEBOUNCE_MS, gap)
     state.timer = setTimeout(() => {
       state.timer = undefined
       void this.review(sessionID, streaming)
-    }, DEBOUNCE_MS)
+    }, delay)
     // Keep the process from being held open by a pending review.
     state.timer.unref?.()
   }
@@ -258,6 +274,7 @@ export class AdvisorEngine {
       if (userMessages > state.userMessageCount) {
         state.userMessageCount = userMessages
         state.steersSinceUser = 0
+        state.blockersThisUserTurn = 0
       }
 
       if (!state.seeded) {
@@ -269,8 +286,12 @@ export class AdvisorEngine {
         if (lastUser < 0) return
       }
 
-      const slice = messages.slice(state.reviewedCount)
-      const transcript = renderDelta(slice, {
+      // Ground the pass in the whole current turn, not just the step that
+      // triggered it: a one-step slice is partial evidence, and reviewers that
+      // reason from it assert state they have not checked.
+      const lastUser = findLastIndex(messages, (m) => m.type === "user")
+      const base = lastUser >= 0 ? Math.min(state.reviewedCount, lastUser) : state.reviewedCount
+      const transcript = renderDelta(messages.slice(base), {
         includeThinking: this.#config.includeThinking,
         maxChars: this.#config.maxTranscriptChars,
         wip: streaming,
@@ -358,6 +379,7 @@ export class AdvisorEngine {
         continue
       }
       if (reply.kind === "notes" && reply.notes) {
+        if (reply.retractions?.length) this.#applyRetractions(advisor, reply.retractions, state)
         const routed = await this.#routeNotes(advisor, reply.notes, sessionID, streaming, state, guard)
         const count = reply.notes.length === 0 ? "no notes" : `${reply.notes.length} notes`
         // Mid-turn the reviewer is instructed to withhold non-blocking critique,
@@ -397,6 +419,13 @@ export class AdvisorEngine {
       // Safety net: past the per-turn cap, a would-be steer becomes a queued
       // note, so the primary is never woken in an unbounded loop.
       if (channel === "steer" && state.steersSinceUser >= MAX_STEERS_PER_USER_TURN) channel = "queue"
+      // A third blocker inside one user turn is churn far more often than signal;
+      // dropping it here keeps it out of the guard's history, so the turn-end
+      // pass can still raise it if it survives.
+      if (severity === "blocker" && state.blockersThisUserTurn >= MAX_BLOCKERS_PER_USER_TURN) {
+        this.#host.log("debug", "advisor blocker suppressed by per-turn cap", { advisor: advisor.name })
+        continue
+      }
       const decision = guard.admit(note.note, { rank: severityRank(severity), pending: channel !== "steer" })
       if (!decision.accepted) {
         this.#host.log("debug", "advisor note suppressed", { advisor: advisor.name, reason: decision.reason })
@@ -462,7 +491,28 @@ export class AdvisorEngine {
 
     if (steered) state.immuneTurnStart = state.completedTurns
     if (groups.steer.length > 0) state.steersSinceUser += groups.steer.length
+    state.blockersThisUserTurn += admitted.filter((entry) => entry.severity === "blocker").length
     return admitted.length
+  }
+
+  /**
+   * Withdraw earlier notes silently. A retraction is bookkeeping: the agent
+   * must never pay an interruption for the reviewer changing its mind, and the
+   * note must stop being replayed as a tombstone.
+   */
+  #applyRetractions(advisor: AdvisorSpec, retractions: string[], state: SessionState): void {
+    const prior = state.priorNotes.get(advisor.slug) ?? []
+    let removed = 0
+    for (const text of retractions) {
+      for (let i = prior.length - 1; i >= 0; i--) {
+        if (!isSameNote(prior[i]!, text)) continue
+        prior.splice(i, 1)
+        removed += 1
+      }
+    }
+    if (removed === 0) return
+    state.priorNotes.set(advisor.slug, prior)
+    this.#host.log("debug", "advisor retracted earlier notes", { advisor: advisor.name, removed })
   }
 
   /* ---------------------------------------------------------------- *

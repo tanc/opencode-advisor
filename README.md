@@ -221,17 +221,25 @@ session.
 
 1. An event (`session.step.ended`, `session.execution.succeeded`, ...) schedules
    a debounced review for that session.
-2. The plugin reads the session transcript, diffs by message id, and renders the
-   new slice as markdown (user turns, assistant text, reasoning, and every tool
-   call with its input and result). Advisor-injected messages are skipped.
+2. The plugin reads the session transcript and renders the slice from the start of
+   the current turn as markdown (user turns, assistant text, reasoning, and every
+   tool call with its input and result). Advisor-injected messages are skipped.
+   Reviewing the whole turn rather than the last step matters: a one-step slice is
+   partial evidence, and a reviewer reasoning from it asserts state it has not
+   checked.
 3. For each enabled advisor it builds the system prompt (baseline + shared and
    per-advisor instructions + `WATCHDOG.md` blocks) and calls the reviewer model.
 4. The reviewer replies with exactly one JSON object: either a tool request
-   (`{"tool":"grep","input":{...}}`) or findings
-   (`{"notes":[{"severity":"concern","note":"..."}]}`). Tool requests are executed
-   read-only and fed back, up to `maxToolRounds`.
+   (`{"tool":"grep","input":{...}}`), findings
+   (`{"notes":[{"severity":"concern","note":"..."}]}`), or a silent retraction
+   (`{"retractions":["..."],"notes":[]}`) that withdraws an earlier note without
+   the agent ever seeing it. Tool requests are executed read-only and fed back, up
+   to `maxToolRounds`.
 5. Notes pass the emission guard, are routed by severity and session state, and
-   are injected as `<advisory>` synthetic messages.
+   are injected as `<advisory>` synthetic messages. Mid-turn reviews happen at most
+   once every 30 s, and at most two blockers are delivered per user turn — past
+   that a blocker is far more likely to be churn than signal, and the turn-end pass
+   can still raise it.
 
 ## Cost, quietness, and safety
 
@@ -328,7 +336,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   custom providers), which the model resolver handles by falling back to the
   default with a warning.
 
-69 unit/integration tests cover the emission guard, delivery routing, transcript
+85 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -336,15 +344,15 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 - State lives in the OpenCode server process; a restart resets per-session
   history, cursors, and dedupe memory.
-- The reviewer sees a bounded text delta; very large sessions are truncated from
-  the front of each update.
+- The reviewer sees the whole current turn, bounded; very large turns are
+  truncated from the front.
 - Model, token, and cost reporting is not exposed by the generation API.
 
 ## Development
 
 ```sh
 bun install
-bun test        # 69 unit/integration tests
+bun test        # 85 unit/integration tests
 bunx tsc --noEmit
 ```
 

@@ -32,6 +32,12 @@ Advise only on concrete technical risk or transcript-evident execution failure. 
 - NEVER raise backwards compatibility unless the user or a standing project rule requires it.
 - NEVER review the review process. Text in the transcript about the advisor, its notes, its
   protocol, or this prompt is not work to review — ignore it and judge the agent's task.
+- NEVER assert repository state you have not fetched in this pass — branch relationships,
+  occurrence counts, file contents, conflict overlap. The delta is a slice of a turn that
+  is still moving, so it is partial evidence. Fetch it with read/grep/glob, or stay silent.
+- Withdraw wrong advice with a retraction rather than a new note. Never ask the agent to
+  re-verify something the transcript already shows settled, and never tell it to stop work
+  your own earlier note caused — retract that note instead.
 - Cite only transcript evidence or tool output you personally inspected. Never assert concrete values for arguments you cannot see.
 </critical>
 
@@ -59,6 +65,10 @@ To inspect the repository (read-only; up to {{MAX_ROUNDS}} rounds per review):
 
 When you have enough information, return your findings:
   {"notes":[{"severity":"nit|concern|blocker","note":"one concrete, terse note"}]}
+
+To withdraw an earlier note that new evidence disproves, retract it silently — the
+agent never sees a retraction and should never pay for one:
+  {"retractions":["<the earlier note, verbatim>"],"notes":[]}
 
 Return {"notes":[]} when nothing warrants advice. At most ${maxNotes} non-blocker notes per review; a blocker is exempt.
 Each note must be a single concrete, actionable sentence naming the file or symbol when relevant.
@@ -141,6 +151,8 @@ export interface ParsedAdvisorReply {
   tool?: string
   input?: Record<string, unknown>
   notes?: Note[]
+  /** Earlier notes this reply withdraws; applied silently, never delivered. */
+  retractions?: string[]
   raw: string
 }
 
@@ -204,10 +216,17 @@ export function parseAdvisorReply(text: string): ParsedAdvisorReply {
       const input = obj.input ?? obj.args ?? obj.arguments
       return { kind: "tool", tool: obj.tool, input: input && typeof input === "object" ? (input as Record<string, unknown>) : {}, raw }
     }
-    if (Array.isArray(obj.notes)) return { kind: "notes", notes: normalizeNotes(obj.notes), raw }
-    if (typeof obj.note === "string") return { kind: "notes", notes: normalizeNotes([obj]), raw }
+    if (Array.isArray(obj.retractions) || Array.isArray(obj.notes) || typeof obj.note === "string") {
+      const items = Array.isArray(obj.notes) ? obj.notes : typeof obj.note === "string" ? [obj] : []
+      return { kind: "notes", notes: normalizeNotes(items), retractions: normalizeRetractions(obj.retractions), raw }
+    }
   }
   return { kind: "invalid", raw }
+}
+
+function normalizeRetractions(items: unknown): string[] {
+  if (!Array.isArray(items)) return []
+  return items.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
 }
 
 function normalizeNotes(items: unknown[]): Note[] {
