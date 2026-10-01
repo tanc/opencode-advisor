@@ -23,6 +23,7 @@ import { buildReviewPrompt, buildSystemPrompt, formatAdvisoryBatch, parseAdvisor
 import type { AdvisorConfig, AdvisorSpec } from "./config.ts"
 import { DEFAULT_TOOLS } from "./config.ts"
 import { renderDelta, type SessionMessage } from "./transcript.ts"
+import { liveInstances } from "./instances.ts"
 import { runTool } from "./tools.ts"
 import { parseSelector, type ModelRef } from "./model.ts"
 
@@ -46,6 +47,8 @@ export interface InjectInput {
 /** Everything the engine needs from the OpenCode plugin context. */
 export interface EngineHost {
   directory: string
+  /** Identifies this plugin instance in status output and injected metadata. */
+  instance?: string
   listMessages(sessionID: string): Promise<SessionMessage[]>
   generate(input: { model?: ModelRef; prompt: string; signal: AbortSignal }): Promise<string>
   inject(input: InjectInput): Promise<string | undefined>
@@ -469,7 +472,7 @@ export class AdvisorEngine {
         sessionID,
         text,
         description: channel === "preserve" ? "advisor note" : "advisor",
-        metadata: { advisor: { slug: advisor.slug, name: advisor.name, severities: group.map((n) => n.severity ?? "nit") } },
+        metadata: { advisor: { slug: advisor.slug, name: advisor.name, severities: group.map((n) => n.severity ?? "nit"), instance: this.#host.instance } },
         delivery,
         resume,
       })
@@ -524,7 +527,7 @@ export class AdvisorEngine {
         sessionID,
         text,
         description: "advisor notice",
-        metadata: { advisor: { kind: "notice" } },
+        metadata: { advisor: { kind: "notice", instance: this.#host.instance } },
         delivery: "queue",
         resume: false,
       })
@@ -583,6 +586,10 @@ export class AdvisorEngine {
     lastError?: string
     /** Why the configured reviewer model could not be used, if it could not. */
     modelWarning?: string
+    /** Live plugin instances in this process; more than one means duplicated reviewers. */
+    instances: number
+    /** This engine's instance id. */
+    instance?: string
   } {
     const state = this.#state(sessionID)
     const enabled = this.#isEnabled(sessionID)
@@ -610,6 +617,8 @@ export class AdvisorEngine {
       lastOutcome: state.lastOutcome,
       lastError: state.lastError,
       modelWarning: state.lastModelWarning,
+      instances: liveInstances(),
+      instance: this.#host.instance,
     }
   }
 

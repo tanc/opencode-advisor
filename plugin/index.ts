@@ -16,6 +16,7 @@
 import { Plugin } from "@opencode/plugin"
 import { resolveConfig, type AdvisorOptions } from "./config.ts"
 import { AdvisorEngine, type AdvisorEvent, type EngineHost, type ModelRef, type NotifyInput } from "./engine.ts"
+import { instanceClosed, instanceOpened } from "./instances.ts"
 import { matchModel, type RegistryModel } from "./model.ts"
 import type { SessionMessage } from "./transcript.ts"
 
@@ -79,6 +80,8 @@ export default Plugin.define({
   async setup(ctx) {
     const options = (ctx.options ?? {}) as AdvisorOptions
     const directory = ctx.location.directory
+    const instance = Math.random().toString(36).slice(2, 8)
+    instanceOpened()
 
     let config
     try {
@@ -107,6 +110,7 @@ export default Plugin.define({
 
     const host: EngineHost = {
       directory,
+      instance,
       async listMessages(sessionID) {
         const messages = await ctx.session.context({ sessionID })
         return messages as unknown as SessionMessage[]
@@ -238,6 +242,8 @@ export default Plugin.define({
             )
             if (status.lastError) lines.push(`Last error: ${status.lastError}`)
             if (status.modelWarning) lines.push(`! ${status.modelWarning}`)
+            if (status.instances > 1) lines.push(`! ${status.instances} plugin instances are live in this process; each reviews independently`)
+            if (isDump) lines.push(`Instance ${status.instance ?? "?"} · directory ${directory}`)
             if (isDump) {
               for (const a of status.advisors) {
                 if (a.items.length === 0) continue
@@ -261,6 +267,7 @@ export default Plugin.define({
 
     return () => {
       controller.abort()
+      instanceClosed()
       engine.dispose()
     }
   },
