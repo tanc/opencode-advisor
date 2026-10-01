@@ -80,6 +80,13 @@ bunx tsc --noEmit     # both must be green before any commit
   10 per 10 s; away-only unless `showWhenFocused` is set.
 - The OpenCode server needs auth: HTTP Basic `opencode:$OPENCODE_SERVER_PASSWORD`.
   `opencode api` does **not** stream SSE — use `curl -N` for event capture.
+- `ctx.session.hook(name, cb)` accepts a plain `async` callback and **does not validate
+  the name**: a deliberately bogus name (`definitely-not-a-hook`) loads exactly like a
+  real one, so a typo fails silently rather than loudly. A hook on `"context"` was
+  measured against a live 2.0.19 server (15 s sleep inside the callback, timeout control)
+  and produced no delay — hook callbacks are evidently not awaited on that path. This is
+  why `syncBacklog` was removed: a blocking catch-up hook cannot be shown to work, and
+  the failure mode is a silent no-op.
 
 ## Prompt and cache facts
 

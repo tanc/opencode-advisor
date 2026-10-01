@@ -120,7 +120,6 @@ Pass these in the `options` object of the `plugins` entry (or via the
 | `instructions`       | —          | Shared guidance prepended to every advisor's system prompt.             |
 | `tools`              | `read,grep,glob` | Default investigative tools; `[]` grants none.                    |
 | `maxNotesPerUpdate`  | `4`        | Max non-blocker notes accepted per review (`blocker` exempt).           |
-| `syncBacklog`        | `off`      | `off`, `1`, `3`, `5`: pause the primary up to 30 s when this many turns behind. |
 | `immuneTurns`        | `3`        | After a steering note, how many turns every severity stops steering.    |
 | `includeThinking`    | `true`     | Include assistant reasoning in the transcript sent to the reviewer.     |
 | `discover`           | `true`     | Discover `WATCHDOG.*` files on disk.                                    |
@@ -130,7 +129,7 @@ Pass these in the `options` object of the `plugins` entry (or via the
 
 Environment overrides (useful when auto-discovered, since discovery passes no
 options): `ADVISOR_ENABLED`, `ADVISOR_MODEL`, `ADVISOR_INSTRUCTIONS`,
-`ADVISOR_MAX_NOTES`, `ADVISOR_SYNC_BACKLOG`, `ADVISOR_IMMUNE_TURNS`,
+`ADVISOR_MAX_NOTES`, `ADVISOR_IMMUNE_TURNS`,
 `ADVISOR_INCLUDE_THINKING`, `ADVISOR_DISCOVER`, `ADVISOR_NOTIFY`.
 
 ### Model selection
@@ -233,10 +232,6 @@ session.
    read-only and fed back, up to `maxToolRounds`.
 5. Notes pass the emission guard, are routed by severity and session state, and
    are injected as `<advisory>` synthetic messages.
-
-`syncBacklog` is implemented as a bounded wait inside the `context` model hook:
-when the advisor is behind by the configured number of turns, the next primary
-request waits up to 30 seconds for it to catch up.
 
 ## Cost, quietness, and safety
 
@@ -343,7 +338,6 @@ rendering, read-only tools, configuration discovery, and the review loop
   history, cursors, and dedupe memory.
 - The reviewer sees a bounded text delta; very large sessions are truncated from
   the front of each update.
-- `syncBacklog` can delay a primary request by up to 30 seconds when enabled.
 - Model, token, and cost reporting is not exposed by the generation API.
 
 ## Development

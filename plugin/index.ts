@@ -252,13 +252,6 @@ export default Plugin.define({
       })
     })
 
-    // Optional bounded catch-up: wait for the advisor when it falls behind.
-    if (config.syncBacklog > 0) {
-      await ctx.session.hook("context", async () => {
-        await engine.waitForBacklog(config.syncBacklog)
-      })
-    }
-
     return () => {
       controller.abort()
       engine.dispose()

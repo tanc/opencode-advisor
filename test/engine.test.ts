@@ -8,7 +8,6 @@ function makeConfig(over: Partial<AdvisorConfig> = {}): AdvisorConfig {
     enabled: true,
     model: "p/m",
     advisors: [{ name: "Advisor", slug: "advisor", enabled: true, tools: [] }],
-    syncBacklog: 0,
     immuneTurns: 3,
     includeThinking: true,
     maxToolRounds: 6,

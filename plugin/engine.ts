@@ -93,13 +93,10 @@ interface SessionState {
   backlog: number
   userMessageCount: number
   steersSinceUser: number
-  waiters: (() => void)[]
 }
 
 const DEBOUNCE_MS = 350
 const PRIOR_NOTE_LIMIT = 40
-/** Bounded catch-up: the primary waits at most this long for the advisor. */
-const SYNC_BACKLOG_CAP_MS = 30_000
 /** Safety net: at most this many steering wake-ups per user turn, so a
  *  confused reviewer cannot loop the primary indefinitely. */
 const MAX_STEERS_PER_USER_TURN = 4
@@ -114,7 +111,6 @@ export class AdvisorEngine {
   #sessions = new Map<string, SessionState>()
   #abort = new AbortController()
   #sessionOrder: string[] = []
-  #waiters: { threshold: number; resolve: () => void }[] = []
 
   constructor(config: AdvisorConfig, host: EngineHost) {
     this.#config = config
@@ -148,7 +144,6 @@ export class AdvisorEngine {
         backlog: 0,
         userMessageCount: 0,
         steersSinceUser: 0,
-        waiters: [],
       }
       this.#sessions.set(sessionID, state)
       this.#sessionOrder.push(sessionID)
@@ -247,7 +242,6 @@ export class AdvisorEngine {
     const state = this.#state(sessionID)
     if (!this.#isEnabled(sessionID)) {
       state.backlog = 0
-      this.#wakeWaiters()
       return
     }
     if (state.reviewInProgress) {
@@ -302,7 +296,6 @@ export class AdvisorEngine {
     } finally {
       state.reviewInProgress = false
       state.backlog = Math.max(0, state.backlog - 1)
-      this.#wakeWaiters()
       const queued = state.queuedReview
       state.queuedReview = null
       if (queued) {
@@ -473,42 +466,8 @@ export class AdvisorEngine {
   }
 
   /* ---------------------------------------------------------------- *
-   * Catch-up, status, lifecycle
+   * Status and lifecycle
    * ---------------------------------------------------------------- */
-
-  /** Max unreviewed turns across all sessions (bounded catch-up input). */
-  pendingBacklog(): number {
-    let max = 0
-    for (const state of this.#sessions.values()) max = Math.max(max, state.backlog)
-    return max
-  }
-
-  /** Resolve once backlog drops below `threshold`, or after `timeoutMs`. */
-  async waitForBacklog(threshold: number, timeoutMs = SYNC_BACKLOG_CAP_MS): Promise<void> {
-    if (this.pendingBacklog() < threshold) return
-    await new Promise<void>((resolve) => {
-      const waiter = {
-        threshold,
-        resolve: () => {
-          clearTimeout(timer)
-          resolve()
-        },
-      }
-      const timer = setTimeout(waiter.resolve, timeoutMs)
-      timer.unref?.()
-      this.#waiters.push(waiter)
-    })
-  }
-
-  #wakeWaiters(): void {
-    const backlog = this.pendingBacklog()
-    for (let i = this.#waiters.length - 1; i >= 0; i--) {
-      if (backlog < this.#waiters[i]!.threshold) {
-        const waiter = this.#waiters.splice(i, 1)[0]!
-        waiter.resolve()
-      }
-    }
-  }
 
   status(sessionID: string): {
     enabled: boolean
@@ -568,7 +527,6 @@ export class AdvisorEngine {
     for (const state of this.#sessions.values()) {
       if (state.timer) clearTimeout(state.timer)
     }
-    this.#wakeWaiters()
     this.#sessions.clear()
   }
 }

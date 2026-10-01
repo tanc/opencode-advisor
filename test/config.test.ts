@@ -127,22 +127,20 @@ describe("resolveConfig", () => {
 
   test("inline options replace the discovered roster and honor the master switch", async () => {
     const config = await resolveConfig(
-      { enabled: true, advisors: [{ name: "Inline", tools: [] }], syncBacklog: "3", immuneTurns: 5 },
+      { enabled: true, advisors: [{ name: "Inline", tools: [] }], immuneTurns: 5 },
       cwd,
       configDir,
     )
     expect(config.advisors.map((a) => a.name)).toEqual(["Inline"])
     expect(config.advisors[0]!.tools).toEqual([])
-    expect(config.syncBacklog).toBe(3)
     expect(config.immuneTurns).toBe(5)
   })
 
-  test("defaults to disabled and no wait", async () => {
+  test("defaults to disabled", async () => {
     const empty = await fs.mkdtemp(path.join(os.tmpdir(), "advisor-empty-"))
     try {
       const config = await resolveConfig({}, empty, empty)
       expect(config.enabled).toBe(false)
-      expect(config.syncBacklog).toBe(0)
       expect(config.immuneTurns).toBe(3)
     } finally {
       await fs.rm(empty, { recursive: true, force: true })

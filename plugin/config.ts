@@ -4,7 +4,7 @@
  * Two layers, mirroring omp:
  *
  * 1. Plugin options (`ctx.options`) and environment variables — the runtime
- *    knobs (enabled, default model, syncBacklog, immuneTurns, ...).
+ *    knobs (enabled, default model, immuneTurns, ...).
  * 2. `WATCHDOG.md` / `WATCHDOG.{yml,yaml}` discovered on disk — advisor-only
  *    review guidance and an optional roster of specialist advisors.
  *
@@ -36,11 +36,6 @@ export interface AdvisorOptions {
   tools?: string[]
   /** Max non-blocker notes accepted per review. Default 4. */
   maxNotesPerUpdate?: number
-  /**
-   * Bounded catch-up: pause the primary for up to 30s when the advisor has at
-   * least this many unreviewed turns behind it. `off` (default) never waits.
-   */
-  syncBacklog?: "off" | "1" | "3" | "5" | number
   /** Turns after an interrupting note during which further notes do not steer. Default 3. */
   immuneTurns?: number
   /** Include assistant reasoning in the transcript shown to the advisor. Default true. */
@@ -91,7 +86,6 @@ export interface AdvisorConfig {
   advisors: AdvisorSpec[]
   sharedInstructions?: string
   sharedMaxNotesPerUpdate?: number
-  syncBacklog: 0 | 1 | 3 | 5
   immuneTurns: number
   includeThinking: boolean
   maxToolRounds: number
@@ -127,14 +121,6 @@ function num(value: unknown): number | undefined {
 function bool(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value
   if (typeof value === "string") return truthy.test(value)
-  return undefined
-}
-
-function parseSyncBacklog(value: unknown): 0 | 1 | 3 | 5 | undefined {
-  if (value === undefined || value === null) return undefined
-  const s = String(value).trim().toLowerCase()
-  if (s === "off" || s === "0" || s === "false" || s === "none") return 0
-  if (s === "1" || s === "3" || s === "5") return Number(s) as 1 | 3 | 5
   return undefined
 }
 
@@ -183,7 +169,6 @@ export function resolveOptions(options: AdvisorOptions): Omit<AdvisorConfig, "ad
     model,
     sharedInstructions,
     sharedMaxNotesPerUpdate: maxNotesPerUpdate,
-    syncBacklog: parseSyncBacklog(options.syncBacklog ?? process.env.ADVISOR_SYNC_BACKLOG) ?? 0,
     immuneTurns: Math.max(0, num(options.immuneTurns ?? process.env.ADVISOR_IMMUNE_TURNS) ?? 3),
     includeThinking: bool(options.includeThinking) ?? envBool("ADVISOR_INCLUDE_THINKING") ?? true,
     maxToolRounds: Math.max(0, num(options.maxToolRounds) ?? 6),
@@ -525,7 +510,6 @@ export async function resolveConfig(
     advisors,
     sharedInstructions: base.sharedInstructions ?? discovered.sharedInstructions,
     sharedMaxNotesPerUpdate: base.sharedMaxNotesPerUpdate ?? discovered.sharedMaxNotesPerUpdate,
-    syncBacklog: base.syncBacklog,
     immuneTurns: base.immuneTurns,
     includeThinking: base.includeThinking,
     maxToolRounds: base.maxToolRounds,
