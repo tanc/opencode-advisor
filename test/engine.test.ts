@@ -129,7 +129,7 @@ describe("AdvisorEngine", () => {
     await engine.review("s1", false)
 
     expect(host.prompts).toHaveLength(2)
-    expect(host.prompts[1]).toContain("<tool-result")
+    expect(host.prompts[1]).toContain("<inspection")
     expect(host.injections).toHaveLength(1)
     engine.dispose()
   })
@@ -314,6 +314,23 @@ describe("AdvisorEngine", () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]!.title).toBe("Advisor · blocker")
     expect(calls[0]!.showWhenFocused).toBe(true)
+    engine.dispose()
+  })
+
+  test("suppresses a reworded repeat of an earlier note", async () => {
+    const messages: SessionMessage[] = [user, midwork]
+    const host = makeHost("/repo", messages)
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    host.responses.push('{"notes":[{"severity":"concern","note":"The emit URL is built from the origin so a path prefix is dropped"}]}')
+    await engine.review("s1", true)
+    expect(host.injections).toHaveLength(1)
+
+    messages.push({ id: "m9", type: "assistant", finish: "stop", content: [{ type: "text", text: "more" }] })
+    host.responses.push('{"notes":[{"severity":"concern","note":"Emit URL built from origin drops the path prefix"}]}')
+    await engine.review("s1", true)
+
+    expect(host.injections).toHaveLength(1)
     engine.dispose()
   })
 

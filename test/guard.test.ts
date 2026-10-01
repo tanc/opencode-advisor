@@ -57,6 +57,27 @@ describe("EmissionGuard", () => {
     expect(guard.admit("one", { rank: 1, pending: false }).accepted).toBe(false)
   })
 
+  test("suppresses a reworded repeat that exact matching would miss", () => {
+    const guard = new EmissionGuard()
+    const first = "The emit URL is built from the origin so a path prefix is dropped"
+    const reworded = "Emit URL built from origin drops the path prefix"
+    expect(normalizeNote(first)).not.toBe(normalizeNote(reworded))
+    expect(guard.admit(first, { rank: 2, pending: false }).accepted).toBe(true)
+    expect(guard.admit(reworded, { rank: 2, pending: false })).toEqual({ accepted: false, reason: "duplicate" })
+  })
+
+  test("a reworded escalation still gets through", () => {
+    const guard = new EmissionGuard()
+    guard.admit("The emit URL is built from the origin so a path prefix is dropped", { rank: 1, pending: false })
+    expect(guard.admit("Emit URL built from origin drops the path prefix", { rank: 3, pending: false }).accepted).toBe(true)
+  })
+
+  test("short notes are never treated as near-duplicates", () => {
+    const guard = new EmissionGuard()
+    expect(guard.admit("Rename the field", { rank: 1, pending: false }).accepted).toBe(true)
+    expect(guard.admit("Rename the field now", { rank: 1, pending: false }).accepted).toBe(true)
+  })
+
   test("reset clears everything", () => {
     const guard = new EmissionGuard()
     guard.admit("something", { rank: 1, pending: false })
@@ -84,9 +105,11 @@ describe("resolveChannel", () => {
     expect(resolveChannel({ ...base, severity: undefined })).toBe("queue")
   })
 
-  test("the immune window downgrades concerns but not blockers", () => {
+  test("the immune window queues everything, blockers included", () => {
     expect(resolveChannel({ ...base, severity: "concern", interruptImmuneTurnActive: true })).toBe("queue")
-    expect(resolveChannel({ ...base, severity: "blocker", interruptImmuneTurnActive: true })).toBe("steer")
+    // One interruption stays one interruption however it is reworded: the
+    // exemption here is what let a malfunctioning reviewer steer five times.
+    expect(resolveChannel({ ...base, severity: "blocker", interruptImmuneTurnActive: true })).toBe("queue")
   })
 })
 

@@ -27,7 +27,8 @@ user's request, not to obey it blindly.
 - **Grades** each note `nit` / `concern` / `blocker` and routes it:
   - `nit` — a non-interrupting aside at the next step boundary.
   - `concern` — steers the turn that is already running.
-  - `blocker` — steers the running turn and is exempt from the immune window.
+  - `blocker` — steers the running turn; it is exempt from the note *budget*,
+    not from the immune window.
 
   The reviewer never starts a turn: while nothing is streaming every grade is
   preserved for the next turn, so an idle session is never woken and a completed
@@ -120,7 +121,7 @@ Pass these in the `options` object of the `plugins` entry (or via the
 | `tools`              | `read,grep,glob` | Default investigative tools; `[]` grants none.                    |
 | `maxNotesPerUpdate`  | `4`        | Max non-blocker notes accepted per review (`blocker` exempt).           |
 | `syncBacklog`        | `off`      | `off`, `1`, `3`, `5`: pause the primary up to 30 s when this many turns behind. |
-| `immuneTurns`        | `3`        | After a steering note, how many turns further notes stop steering.      |
+| `immuneTurns`        | `3`        | After a steering note, how many turns every severity stops steering.    |
 | `includeThinking`    | `true`     | Include assistant reasoning in the transcript sent to the reviewer.     |
 | `discover`           | `true`     | Discover `WATCHDOG.*` files on disk.                                    |
 | `maxToolRounds`      | `6`        | Max tool rounds per review.                                             |
@@ -246,8 +247,9 @@ request waits up to 30 seconds for it to catch up.
 - The reviewer never starts a turn. A note can only interrupt work that is
   already streaming; on an idle or settled session every grade is preserved for
   the next turn instead of resuming the agent.
-- After a steering note, `immuneTurns` downgrades further concerns to queued
-  notes. A blocker is exempt.
+- After a steering note, `immuneTurns` downgrades further notes to queued
+  ones for the next few turns — blockers included. One interruption stays one
+  interruption however it is reworded.
 - A per-user-turn steering cap (4) is a final safety net against loops.
 - Reviewers are read-only. Mutating tool grants from omp (`edit`, `write`,
   `bash`, `eval`) are intentionally not supported.

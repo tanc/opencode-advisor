@@ -26,6 +26,25 @@ export function normalizeNote(note: string): string {
     .trim()
 }
 
+/** Significant words of a normalized note; short words carry no signal. */
+function tokensOf(key: string): Set<string> {
+  return new Set(key.split(" ").filter((word) => word.length > 3))
+}
+
+/**
+ * Near-duplicate test for reworded repeats.
+ *
+ * Reviewer models defeat exact-match dedupe by paraphrasing: one confused note
+ * can return as eight reworded ones. Token overlap closes that, while notes too
+ * short to judge safely are never matched, so distinct advice still gets through.
+ */
+function isNearDuplicate(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size < 4 || b.size < 4) return false
+  let shared = 0
+  for (const word of a) if (b.has(word)) shared += 1
+  return shared / (a.size + b.size - shared) >= 0.6
+}
+
 /** Short, content-free phrases that carry no actionable advice. */
 const NOISE: ReadonlySet<string> = new Set([
   "stop",
@@ -91,6 +110,7 @@ const MAX_BUDGET = 32
  */
 export class EmissionGuard {
   #seen = new Map<string, number>()
+  #tokens = new Map<string, Set<string>>()
   #order: string[] = []
   #slots: { key: string; rank: number; pending: boolean }[] = []
   readonly #capacity: number
@@ -105,6 +125,7 @@ export class EmissionGuard {
 
   reset(): void {
     this.#seen.clear()
+    this.#tokens.clear()
     this.#order = []
     this.#slots = []
   }
@@ -133,9 +154,13 @@ export class EmissionGuard {
     this.#seen.set(key, rank)
     if (!isNew) return
     this.#order.push(key)
+    this.#tokens.set(key, tokensOf(key))
     if (this.#order.length > this.#capacity) {
       const stale = this.#order.shift()
-      if (stale !== undefined) this.#seen.delete(stale)
+      if (stale !== undefined) {
+        this.#seen.delete(stale)
+        this.#tokens.delete(stale)
+      }
     }
   }
 
@@ -144,6 +169,12 @@ export class EmissionGuard {
     if (!key) return { accepted: false, reason: "empty" }
     if (NOISE.has(key)) return { accepted: false, reason: "noise" }
     if (opts.rank <= (this.#seen.get(key) ?? 0)) return { accepted: false, reason: "duplicate" }
+    const tokens = tokensOf(key)
+    for (const [seenKey, seenTokens] of this.#tokens) {
+      if (opts.rank <= (this.#seen.get(seenKey) ?? 0) && isNearDuplicate(tokens, seenTokens)) {
+        return { accepted: false, reason: "duplicate" }
+      }
+    }
 
     let displacedKey: string | undefined
     const own = this.#slots.find((s) => s.key === key)
@@ -193,12 +224,13 @@ export interface ChannelInput {
  * The invariant is that the reviewer never starts a turn: a note can only
  * reach `steer`/`queue` while work is streaming, so an idle session is never
  * woken and a completed turn is never restarted. While a turn runs a `concern`
- * steers and a `blocker` always steers, `nit`s queue, and inside the
- * post-interrupt immune window a non-blocker queues instead of steering.
+ * or a `blocker` steers and a `nit` queues — but only until something has
+ * steered: inside the post-interrupt immune window everything queues, blockers
+ * included. One interruption stays one interruption, however it is reworded.
  */
 export function resolveChannel(input: ChannelInput): DeliveryChannel {
   if (!input.streaming) return "preserve"
   if (input.severity === "nit" || input.severity === undefined) return "queue"
-  if (input.interruptImmuneTurnActive && input.severity !== "blocker") return "queue"
+  if (input.interruptImmuneTurnActive) return "queue"
   return "steer"
 }
