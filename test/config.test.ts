@@ -143,7 +143,10 @@ describe("resolveConfig", () => {
       expect(config.enabled).toBe(false)
       expect(config.immuneTurns).toBe(3)
       expect(config.maxToolRounds).toBe(3)
-      expect(config.requestTimeoutMs).toBe(45_000)
+      // Prompt size drives reviewer latency, so the delta cap and the deadline
+      // are chosen together (see the comment in resolveConfig).
+      expect(config.maxTranscriptChars).toBe(30_000)
+      expect(config.requestTimeoutMs).toBe(90_000)
     } finally {
       await fs.rm(empty, { recursive: true, force: true })
     }

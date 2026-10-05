@@ -181,8 +181,13 @@ export function resolveOptions(options: AdvisorOptions): Omit<AdvisorConfig, "ad
     // Three rounds is enough for a reviewer to check the specific claim it is
     // about to make; more rounds mostly buy latency, one model call each.
     maxToolRounds: Math.max(0, num(options.maxToolRounds) ?? 3),
-    maxTranscriptChars: Math.max(2_000, num(options.maxTranscriptChars) ?? 60_000),
-    requestTimeoutMs: Math.max(1_000, num(options.requestTimeoutMs) ?? 45_000),
+    maxTranscriptChars: Math.max(2_000, num(options.maxTranscriptChars) ?? 30_000),
+    // Latency tracks prompt size on the reviewer's endpoint: measured on
+    // opencode-go/glm-5.3-flash, 16k chars answered in ~4s, 34k in ~13s, 70k in
+    // 24-38s. The old 60k cap put every full-size review at the deadline, so a
+    // smaller delta buys both speed and margin; the deadline then bounds a hang
+    // rather than racing a working call.
+    requestTimeoutMs: Math.max(1_000, num(options.requestTimeoutMs) ?? 90_000),
     notify: parseNotify(options.notify ?? process.env.ADVISOR_NOTIFY),
     discover: bool(options.discover) ?? envBool("ADVISOR_DISCOVER") ?? true,
     configuredAdvisors,

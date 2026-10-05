@@ -84,7 +84,7 @@ bunx tsc --noEmit     # both must be green before any commit
    when its location is not this instance's directory. The verdict is cached per
    session and fails open on an unusable roster.
 10. **A model call cannot wedge a session.** Every reviewer call carries a deadline
-    (`requestTimeoutMs`, 45 s) and is retried once on a fast transient transport
+    (`requestTimeoutMs`, 90 s) and is retried once on a fast transient transport
     failure — not on a timeout, which would double the wait. A hung endpoint used to
     block that session's review queue for minutes; it now fails and is reported.
 

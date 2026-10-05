@@ -126,8 +126,8 @@ Pass these in the `options` object of the `plugins` entry (or via the
 | `includeThinking`    | `true`     | Include assistant reasoning in the transcript sent to the reviewer.     |
 | `discover`           | `true`     | Discover `WATCHDOG.*` files on disk.                                    |
 | `maxToolRounds`      | `3`        | Max tool rounds per review (one model call each).                       |
-| `maxTranscriptChars` | `60000`    | Max characters of transcript sent per review.                           |
-| `requestTimeoutMs`   | `45000`    | Deadline per reviewer model call; a fast transient failure is retried once. |
+| `maxTranscriptChars` | `30000`    | Max characters of transcript sent per review (latency tracks this).     |
+| `requestTimeoutMs`   | `90000`    | Deadline per reviewer model call; a fast transient failure is retried once. |
 | `notify`             | `off`      | `off`/`away`/`always`: also raise an OpenChamber notification per note.  |
 
 Environment overrides (useful when auto-discovered, since discovery passes no
@@ -273,7 +273,7 @@ session.
    once every 30 s, and at most two blockers are delivered per user turn — past
    that a blocker is far more likely to be churn than signal, and the turn-end pass
    can still raise it.
-6. Every reviewer model call has a deadline (`requestTimeoutMs`, 45 s) and is retried
+6. Every reviewer model call has a deadline (`requestTimeoutMs`, 90 s) and is retried
    once on a fast transient transport failure. A call that times out is not retried —
    that only doubles the wait — so an unreachable endpoint costs one bounded pause and
    a visible notice, never a stuck review queue.
