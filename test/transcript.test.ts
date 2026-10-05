@@ -39,6 +39,26 @@ describe("renderDelta", () => {
     expect(renderDelta([advisory], { includeThinking: true, maxChars: 1000 })).toBe("")
   })
 
+  test("keeps the pull-tool call out of the review delta", () => {
+    const withPull: SessionMessage = {
+      id: "m4",
+      type: "assistant",
+      finish: "tool-calls",
+      content: [
+        { type: "tool", name: "edit", state: { status: "completed", input: { path: "a.ts" }, content: [] } },
+        {
+          type: "tool",
+          name: "advisor",
+          state: { status: "completed", input: {}, content: [{ type: "text", text: "1. Do X first" }] },
+        },
+      ],
+    }
+    const text = renderDelta([withPull], { includeThinking: true, maxChars: 10_000 })
+    expect(text).toContain("**Tool** `edit`")
+    expect(text).not.toContain("**Tool** `advisor`")
+    expect(text).not.toContain("Do X first")
+  })
+
   test("elides the oldest content past the budget", () => {
     const big: SessionMessage = { id: "b", type: "assistant", content: [{ type: "text", text: "x".repeat(5000) }] }
     const text = renderDelta([big], { includeThinking: true, maxChars: 1000 })

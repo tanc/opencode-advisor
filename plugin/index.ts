@@ -14,10 +14,11 @@
  * twice.
  */
 import { Plugin } from "@opencode/plugin"
-import { resolveConfig, type AdvisorOptions } from "./config.ts"
+import { ADVISOR_TOOL_NAME, resolveConfig, type AdvisorOptions } from "./config.ts"
 import { AdvisorEngine, type AdvisorEvent, type EngineHost, type ModelRef, type NotifyInput } from "./engine.ts"
 import { instanceClosed, instanceOpened } from "./instances.ts"
 import { matchModel, type RegistryModel } from "./model.ts"
+import { ADVISOR_TOOL_DESCRIPTION } from "./prompts.ts"
 import type { SessionMessage } from "./transcript.ts"
 
 const AGENT_TOOL_SUFFIX = "/api/openchamber/agent-tool"
@@ -186,6 +187,32 @@ export default Plugin.define({
     }
 
     const engine = new AdvisorEngine(config, host)
+
+    // Pull-mode advice: an `advisor` tool the agent can call. The answer is the
+    // tool's own result, which renders in OpenChamber's timeline — the one
+    // channel for plugin advice that does not depend on OpenChamber rendering
+    // synthetics. Gated per session like the pushed reviewer.
+    await ctx.tool.transform((editor) => {
+      editor.add({
+        name: ADVISOR_TOOL_NAME,
+        description: ADVISOR_TOOL_DESCRIPTION,
+        input: {
+          type: "object",
+          properties: {
+            question: {
+              type: "string",
+              description:
+                "Optional focus, e.g. 'merge strategy for the test branch'. Omit for general next-step advice.",
+            },
+          },
+        },
+        async execute(input, context) {
+          const question = (input as { question?: unknown } | undefined)?.question
+          const text = await engine.pullAdvice(context.sessionID, typeof question === "string" ? question : "")
+          return { content: text }
+        },
+      })
+    })
 
     try {
       const stored = await ctx.storage.get(storageKey)

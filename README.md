@@ -154,6 +154,25 @@ to the location default. A reviewer that cannot call its model must never be
 indistinguishable from one with nothing to say — silence is a valid outcome,
 failing silently is not.
 
+## Pull advice on demand
+
+Besides watching, the plugin registers an `advisor` tool the agent can call
+itself. The tool ships the session transcript to the reviewer with the agent's
+question and returns short, actionable advice (what to do next, in what order,
+what to watch out for) as the tool's own result.
+
+That channel matters because a tool result renders in OpenChamber's timeline —
+the one place plugin advice is visible without OpenChamber changes. The agent
+is told to call it before committing to an approach, when stuck, and before
+declaring done.
+
+- Gated by the same per-session switch as the watcher: with the advisor off,
+  the tool refuses (`/advisor on` to enable).
+- One answer at a time per session.
+- Requested advice is recorded as already-raised, so the pushed review pass
+  never re-litigates it, and the tool's result is kept out of the review delta.
+- The advice answers from the transcript only — it does not inspect files.
+
 ## Give the reviewer project-specific priorities
 
 Put reviewer-only guidance in `WATCHDOG.md`. This is the best place for
@@ -366,7 +385,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   custom providers), which the model resolver handles by falling back to the
   default with a warning.
 
-102 unit/integration tests cover the emission guard, delivery routing, transcript
+108 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -382,7 +401,7 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 102 unit/integration tests
+bun test        # 108 unit/integration tests
 bunx tsc --noEmit
 ```
 

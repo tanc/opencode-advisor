@@ -17,19 +17,19 @@ and does not dedupe, so the plugin would load twice.
 
 | file | owns |
 | --- | --- |
-| `plugin/index.ts` | `Plugin.define`, event subscription, the `/advisor` command, and the host: synthetic injection, model resolution, notifications, `ctx.storage` |
+| `plugin/index.ts` | `Plugin.define`, event subscription, the `/advisor` command, the `advisor` pull tool, and the host: synthetic injection, model resolution, notifications, `ctx.storage` |
 | `plugin/engine.ts` | observation → review → delivery; session state; routing; backlog |
 | `plugin/guard.ts` | `EmissionGuard` (noise, duplicates, per-update budget) and `resolveChannel` (delivery routing) |
 | `plugin/model.ts` | reviewer model selection: selector parsing and registry matching |
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 102 tests, no network and no real model |
+| `test/*.test.ts` | 108 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 102 tests
+bun test              # 108 tests
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
@@ -44,6 +44,10 @@ bunx tsc --noEmit     # both must be green before any commit
   tools, so the plugin runs the inspection loop itself: the reviewer replies with
   `{"tool":"read"|"grep"|"glob",...}` and the plugin appends `<tool-result>` blocks,
   up to `maxToolRounds` (6) per review.
+- **Advice has two channels.** Pushed reviews raise notes; the `advisor` tool lets the
+  agent ask. A tool result renders in OpenChamber's timeline, so the pull channel is
+  the only visible one. Pull answers are tombstoned and their tool results are kept
+  out of the review delta, so neither channel re-litigates the other.
 - **Delivery is `ctx.session.synthetic`** with `delivery: "steer" | "queue"` and
   `resume`. Notes carry `metadata.advisor`, and `isAdvisorMessage` makes the reviewer
   ignore its own output.

@@ -133,6 +133,9 @@ export function slugify(name: string): string {
   return slug || "advisor"
 }
 
+/** Name of the pull-mode tool the agent can call for on-demand advice. */
+export const ADVISOR_TOOL_NAME = "advisor"
+
 /** Split `provider/model#variant` (variant optional) into a model reference. */
 export function parseModelSelector(selector: string): { providerID: string; id: string; variant?: string } | undefined {
   const trimmed = selector.trim()

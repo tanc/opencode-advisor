@@ -517,6 +517,57 @@ describe("AdvisorEngine", () => {
     engine.dispose()
   })
 
+  test("pull advice returns the tool answer and tombstones it", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push("1. Merge feature into test first\n2. Push after CI")
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    const answer = await engine.pullAdvice("s1", "what merge order")
+    expect(answer).toContain("Merge feature into test first")
+    expect(host.prompts).toHaveLength(1)
+    expect(host.prompts[0]).toContain("--- CONVERSATION TRANSCRIPT ---")
+    expect(host.prompts[0]).toContain("do the thing")
+    expect(host.prompts[0]).toContain("--- QUESTION ---\n\nwhat merge order")
+
+    // The pushed reviewer must treat requested advice as already-raised, not
+    // re-litigate it — and the tool result is filtered from the delta, so the
+    // tombstone is the only way it knows the advice exists.
+    host.responses.push('{"notes":[]}')
+    await engine.review("s1", false)
+    expect(host.prompts[1]).toContain("<already-raised>")
+    expect(host.prompts[1]).toContain("Merge feature into test first")
+    engine.dispose()
+  })
+
+  test("pull advice is gated by the session switch", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    const engine = new AdvisorEngine(makeConfig(), host)
+    engine.setSessionEnabled("s1", false)
+    const answer = await engine.pullAdvice("s1", "anything")
+    expect(answer).toContain("/advisor on")
+    expect(host.prompts).toHaveLength(0)
+    engine.dispose()
+  })
+
+  test("one pull at a time per session", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    host.generate = async ({ prompt }) => {
+      host.prompts.push(prompt)
+      await gate
+      return "advice"
+    }
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    const first = engine.pullAdvice("s1", "first")
+    const second = await engine.pullAdvice("s1", "second")
+    expect(second).toContain("already answering")
+    release()
+    expect(await first).toBe("advice")
+    engine.dispose()
+  })
+
   test("a note never resumes an idle session", async () => {
     const host = makeHost("/repo", [user, terminal])
     host.responses.push('{"notes":[{"severity":"blocker","note":"Stop and fix the schema"}]}')

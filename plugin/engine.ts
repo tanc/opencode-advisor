@@ -19,7 +19,7 @@ import {
   type Note,
   type Severity,
 } from "./guard.ts"
-import { buildReviewPrompt, buildSystemPrompt, formatAdvisoryBatch, parseAdvisorReply } from "./prompts.ts"
+import { buildAdvicePrompt, buildReviewPrompt, buildSystemPrompt, formatAdvisoryBatch, parseAdvisorReply } from "./prompts.ts"
 import type { AdvisorConfig, AdvisorSpec } from "./config.ts"
 import { DEFAULT_TOOLS } from "./config.ts"
 import { renderDelta, type SessionMessage } from "./transcript.ts"
@@ -133,6 +133,8 @@ export class AdvisorEngine {
   #sessionOrder: string[] = []
   #reviewable = new Map<string, { ok: boolean; at: number }>()
   #agents?: { at: number; reviewable?: Set<string> }
+  /** Sessions with a pull-tool answer in flight, one at a time. */
+  #pullsInFlight = new Set<string>()
 
   constructor(config: AdvisorConfig, host: EngineHost) {
     this.#config = config
@@ -580,6 +582,46 @@ export class AdvisorEngine {
     if (groups.steer.length > 0) state.steersSinceUser += groups.steer.length
     state.blockersThisUserTurn += admitted.filter((entry) => entry.severity === "blocker").length
     return admitted.length
+  }
+
+  /**
+   * Pull-mode advice: the agent asks via the `advisor` tool, and the answer is
+   * returned as the tool's own result — which renders in OpenChamber's
+   * timeline, unlike anything we push. One shot, no inspection loop: the
+   * transcript is the evidence. The advice is also tombstoned, so the pushed
+   * review pass treats it as already-raised instead of re-litigating it.
+   */
+  async pullAdvice(sessionID: string, question: string): Promise<string> {
+    if (!this.#isEnabled(sessionID)) {
+      return "Advisor is off for this session: run /advisor on to enable it."
+    }
+    if (this.#pullsInFlight.has(sessionID)) {
+      return "Advisor is already answering a question for this session; wait for that answer before asking again."
+    }
+    this.#pullsInFlight.add(sessionID)
+    try {
+      const messages = await this.#host.listMessages(sessionID)
+      const transcript = renderDelta(messages, {
+        includeThinking: this.#config.includeThinking,
+        maxChars: this.#config.maxTranscriptChars,
+        wip: false,
+      })
+      if (!transcript) return "Advisor declined: there is no conversation to advise on yet."
+      const advisor = this.#config.advisors.find((a) => a.enabled)
+      const model = await this.#host.resolveModel(advisor?.model ?? this.#config.model)
+      const prompt = buildAdvicePrompt({ advisorName: advisor?.name ?? "Advisor", transcript, question })
+      const text = (await this.#host.generate({ model: model ?? undefined, prompt, signal: this.#abort.signal })).trim()
+      const answer = text || "Advisor returned no advice."
+      if (advisor) {
+        const state = this.#state(sessionID)
+        const prior = state.priorNotes.get(advisor.slug) ?? []
+        prior.push(answer)
+        state.priorNotes.set(advisor.slug, prior.slice(-PRIOR_NOTE_LIMIT))
+      }
+      return answer
+    } finally {
+      this.#pullsInFlight.delete(sessionID)
+    }
   }
 
   /**

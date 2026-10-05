@@ -29,6 +29,9 @@ interface ContentPart {
   state?: ToolState
 }
 
+/** Our own pull-tool output, kept out of the review delta. */
+const ADVISOR_TOOL_NAME = "advisor"
+
 export interface SessionMessage {
   id?: string
   type?: string
@@ -75,6 +78,9 @@ function renderAssistant(message: SessionMessage, includeThinking: boolean): str
     } else if (part.type === "reasoning" && includeThinking && part.text?.trim()) {
       blocks.push(`<thinking>\n${part.text.trim()}\n</thinking>`)
     } else if (part.type === "tool") {
+      // Our own pull-tool answers never feed the pushed review: the reviewer
+      // would otherwise re-litigate advice it gave on request.
+      if (part.name === ADVISOR_TOOL_NAME) continue
       const state = part.state ?? {}
       const input = renderInput(state.input)
       let block = `**Tool** \`${part.name ?? "?"}\` (${state.status ?? "?"})`

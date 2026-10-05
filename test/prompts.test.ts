@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildReviewPrompt, buildSystemPrompt, formatAdvisoryBatch, parseAdvisorReply } from "../plugin/prompts.ts"
+import { buildAdvicePrompt, buildReviewPrompt, buildSystemPrompt, formatAdvisoryBatch, parseAdvisorReply } from "../plugin/prompts.ts"
 
 describe("parseAdvisorReply", () => {
   test("parses a notes response", () => {
@@ -113,5 +113,23 @@ describe("formatAdvisoryBatch", () => {
     expect(text).toContain('advisor="Security"')
     expect(text).toContain("A &lt; B &amp; C")
     expect(text).toContain('guidance="weigh, don\'t blindly obey"')
+  })
+})
+
+describe("buildAdvicePrompt", () => {
+  test("frames the question over the transcript with the advice contract", () => {
+    const prompt = buildAdvicePrompt({ advisorName: "Advisor", transcript: "**User**\nmerge plan?", question: "which branch order" })
+    expect(prompt.indexOf("strategic advisor")).toBeLessThan(prompt.indexOf("CONVERSATION TRANSCRIPT"))
+    expect(prompt).toContain("**User**")
+    expect(prompt).toContain("--- QUESTION ---\n\nwhich branch order")
+    expect(prompt).toContain("under 300 words")
+    expect(prompt).toContain("Do NOT write code")
+  })
+
+  test("substitutes defaults for an empty question or transcript", () => {
+    const prompt = buildAdvicePrompt({ advisorName: "Scout", transcript: "   ", question: "  " })
+    expect(prompt).toContain("(no conversation yet)")
+    expect(prompt).toContain("advise on what to do next")
+    expect(prompt).toContain("You are Scout")
   })
 })

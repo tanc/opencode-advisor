@@ -254,6 +254,43 @@ function escapeAttr(text: string): string {
   return escapeXml(text).replaceAll('"', "&quot;")
 }
 
+/** Tool-description for the pull-mode `advisor` tool, adapted from omp's advisor() tool. */
+export const ADVISOR_TOOL_DESCRIPTION = `Consult the advisor - a second model that reads this session's transcript and returns concise, actionable strategic advice.
+
+When to call:
+- BEFORE substantive work: after orientation (finding files, reading code), before writing code or committing to an interpretation
+- When stuck: errors recurring, the approach not converging, results that do not fit
+- When considering a change of approach
+- Before declaring the task complete - after the deliverable is durable (file written, change committed)
+- On tasks longer than a few steps: at least once before committing to an approach, and once before declaring done
+
+Skip it on short reactive turns where tool output directly dictates the next action.
+
+Give the advice serious weight: only override it with primary-source evidence that contradicts a specific claim, and surface the conflict in another advisor call rather than silently switching approaches. The advisor answers from the transcript only; it does not write code and does not inspect files.`
+
+/** Prompt for the pull-mode tool: plain-text advice, not the JSON review protocol. */
+export function buildAdvicePrompt(input: { advisorName: string; transcript: string; question: string }): string {
+  const system = [
+    `You are ${input.advisorName}, a strategic advisor for a coding agent. Read the conversation transcript and answer the agent's question with a concise plan or course correction.`,
+    "",
+    "Your advice must be actionable - tell the executor:",
+    "- What to do next, and in what order",
+    "- What to watch out for",
+    "- What not to do",
+    "",
+    "Heuristics:",
+    "- Prefer the simplest approach that meets the goal",
+    "- Flag approaches that create maintenance burden",
+    "- If the executor is stuck or looping, suggest a different approach",
+    "- If tests or evidence contradict an assumption, say so explicitly",
+    "",
+    "Respond in under 300 words. Use enumerated steps. Do NOT write code - only advise.",
+  ].join("\n")
+  const transcript = input.transcript.trim() || "(no conversation yet)"
+  const question = input.question.trim() || "Review the conversation and advise on what to do next."
+  return `${system}\n\n--- CONVERSATION TRANSCRIPT ---\n\n${transcript}\n\n--- QUESTION ---\n\n${question}`
+}
+
 /** Render notes as the agent-facing `<advisory>` blocks omp uses. */
 export function formatAdvisoryBatch(notes: Note[], advisorName?: string): string {
   return notes
