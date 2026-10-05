@@ -114,6 +114,19 @@ const MIDTURN_MIN_INTERVAL_MS = 30_000
 /** Ceiling on delivered blockers per user turn: past this a blocker is far more
  *  likely to be churn than signal, and the turn-end pass can re-raise it. */
 const MAX_BLOCKERS_PER_USER_TURN = 2
+/** Attempts per reviewer model call: one retry for a fast transient failure. */
+const MAX_MODEL_ATTEMPTS = 2
+/**
+ * Failures worth one retry: the request never produced a usable answer for a
+ * transport reason. Auth, model-resolution and configuration failures are
+ * deliberately absent — retrying those only spends time to fail again.
+ */
+const TRANSIENT_FAILURE = /ECONN|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|socket hang up|getaddrinfo|network|stream ended|finish_reason|premature close|connection (lost|reset|closed)|fetch failed|\b(429|502|503|504)\b/i
+
+function isTransientFailure(error: unknown): boolean {
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+  return TRANSIENT_FAILURE.test(message)
+}
 /** How long a session's reviewability verdict is trusted. */
 const SESSION_FILTER_TTL_MS = 5 * 60_000
 const PRIOR_NOTE_LIMIT = 40
@@ -371,13 +384,16 @@ export class AdvisorEngine {
       if (advisors.length === 0) return
 
       let notes = 0
+      // Cleared before the pass, not after: a failed model call sets it from
+      // inside the advisor, and clearing afterwards would erase exactly the
+      // error /advisor status exists to report.
+      state.lastError = undefined
       for (const advisor of advisors) {
         if (this.#abort.signal.aborted) return
         notes += await this.#reviewWith(advisor, sessionID, transcript, streaming, state)
       }
       state.reviews += 1
       state.lastNoteCount = notes
-      state.lastError = undefined
       state.lastReviewAt = Date.now()
     } catch (err) {
       state.lastError = (err as Error).message
@@ -434,7 +450,7 @@ export class AdvisorEngine {
       const prompt = buildReviewPrompt({ system, transcript, toolResults, priorNotes: prior.slice(-PRIOR_NOTE_LIMIT) })
       let text: string
       try {
-        text = await this.#host.generate({ model, prompt, signal: this.#abort.signal })
+        text = await this.#callModel(advisor, model, prompt)
       } catch (err) {
         const message = (err as Error).message
         state.lastError = message
@@ -610,7 +626,21 @@ export class AdvisorEngine {
       const advisor = this.#config.advisors.find((a) => a.enabled)
       const model = await this.#host.resolveModel(advisor?.model ?? this.#config.model)
       const prompt = buildAdvicePrompt({ advisorName: advisor?.name ?? "Advisor", transcript, question })
-      const text = (await this.#host.generate({ model: model ?? undefined, prompt, signal: this.#abort.signal })).trim()
+      let text: string
+      try {
+        text = (await this.#callModel(advisor, model, prompt)).trim()
+      } catch (err) {
+        // A pull that throws becomes a tool error the agent cannot interpret,
+        // and an agent with a failed tool will sometimes invent the answer.
+        const message = (err as Error).message
+        await this.#noticeOnce(
+          this.#state(sessionID),
+          sessionID,
+          `pull:${message}`,
+          `Advisor: the reviewer's model call failed (${message}), so no advice was returned. /advisor status has the details.`,
+        )
+        return `Advisor unavailable: the reviewer's model call failed (${message}). Do not invent advice; continue on your own judgement.`
+      }
       const answer = text || "Advisor returned no advice."
       if (advisor) {
         const state = this.#state(sessionID)
@@ -622,6 +652,48 @@ export class AdvisorEngine {
     } finally {
       this.#pullsInFlight.delete(sessionID)
     }
+  }
+
+  /**
+   * One reviewer model call, bounded by a deadline and retried once on a fast
+   * transient failure. Without the deadline a hung endpoint wedges the whole
+   * review queue for that session — the failure mode that made notes arrive
+   * minutes late. A timeout is not retried: the retry would double the wait for
+   * an endpoint that has already proved it is not answering.
+   */
+  async #callModel(advisor: AdvisorSpec | undefined, model: ModelRef | undefined, prompt: string): Promise<string> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < MAX_MODEL_ATTEMPTS; attempt++) {
+      const controller = new AbortController()
+      const onAbort = () => controller.abort()
+      this.#abort.signal.addEventListener("abort", onAbort, { once: true })
+      let timedOut = false
+      const timer = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, this.#config.requestTimeoutMs)
+      try {
+        return await this.#host.generate({ model, prompt, signal: controller.signal })
+      } catch (err) {
+        lastError = err
+        if (this.#abort.signal.aborted) throw err
+        if (timedOut) {
+          throw new Error(`timed out after ${Math.round(this.#config.requestTimeoutMs / 1000)}s`)
+        }
+        if (attempt < MAX_MODEL_ATTEMPTS - 1 && isTransientFailure(err)) {
+          this.#host.log("debug", "advisor retrying a transient model failure", {
+            advisor: advisor?.name,
+            error: (err as Error).message,
+          })
+          continue
+        }
+        throw err
+      } finally {
+        clearTimeout(timer)
+        this.#abort.signal.removeEventListener("abort", onAbort)
+      }
+    }
+    throw lastError
   }
 
   /**

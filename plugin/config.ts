@@ -46,6 +46,8 @@ export interface AdvisorOptions {
   maxToolRounds?: number
   /** Max characters of transcript sent per review. Default 60000. */
   maxTranscriptChars?: number
+  /** Deadline for a single reviewer model call, in milliseconds. */
+  requestTimeoutMs?: number
   /**
    * Notify through OpenChamber when a note is delivered. `off` (default) never
    * notifies; `away` only while OpenChamber is unfocused; `always` notifies even
@@ -90,6 +92,8 @@ export interface AdvisorConfig {
   includeThinking: boolean
   maxToolRounds: number
   maxTranscriptChars: number
+  /** Deadline for a single reviewer model call. */
+  requestTimeoutMs: number
   /** How notes reach the user's notifications (OpenChamber only). */
   notify: "off" | "away" | "always"
   /** Blocks appended to every advisor system prompt (WATCHDOG.md content). */
@@ -174,8 +178,11 @@ export function resolveOptions(options: AdvisorOptions): Omit<AdvisorConfig, "ad
     sharedMaxNotesPerUpdate: maxNotesPerUpdate,
     immuneTurns: Math.max(0, num(options.immuneTurns ?? process.env.ADVISOR_IMMUNE_TURNS) ?? 3),
     includeThinking: bool(options.includeThinking) ?? envBool("ADVISOR_INCLUDE_THINKING") ?? true,
-    maxToolRounds: Math.max(0, num(options.maxToolRounds) ?? 6),
+    // Three rounds is enough for a reviewer to check the specific claim it is
+    // about to make; more rounds mostly buy latency, one model call each.
+    maxToolRounds: Math.max(0, num(options.maxToolRounds) ?? 3),
     maxTranscriptChars: Math.max(2_000, num(options.maxTranscriptChars) ?? 60_000),
+    requestTimeoutMs: Math.max(1_000, num(options.requestTimeoutMs) ?? 45_000),
     notify: parseNotify(options.notify ?? process.env.ADVISOR_NOTIFY),
     discover: bool(options.discover) ?? envBool("ADVISOR_DISCOVER") ?? true,
     configuredAdvisors,
@@ -517,6 +524,7 @@ export async function resolveConfig(
     includeThinking: base.includeThinking,
     maxToolRounds: base.maxToolRounds,
     maxTranscriptChars: base.maxTranscriptChars,
+    requestTimeoutMs: base.requestTimeoutMs,
     notify: base.notify,
     watchdogBlocks: discovered.watchdogBlocks,
     projectContext: discovered.projectContext,

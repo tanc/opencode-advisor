@@ -125,8 +125,9 @@ Pass these in the `options` object of the `plugins` entry (or via the
 | `immuneTurns`        | `3`        | After a steering note, how many turns every severity stops steering.    |
 | `includeThinking`    | `true`     | Include assistant reasoning in the transcript sent to the reviewer.     |
 | `discover`           | `true`     | Discover `WATCHDOG.*` files on disk.                                    |
-| `maxToolRounds`      | `6`        | Max tool rounds per review.                                             |
+| `maxToolRounds`      | `3`        | Max tool rounds per review (one model call each).                       |
 | `maxTranscriptChars` | `60000`    | Max characters of transcript sent per review.                           |
+| `requestTimeoutMs`   | `45000`    | Deadline per reviewer model call; a fast transient failure is retried once. |
 | `notify`             | `off`      | `off`/`away`/`always`: also raise an OpenChamber notification per note.  |
 
 Environment overrides (useful when auto-discovered, since discovery passes no
@@ -272,6 +273,10 @@ session.
    once every 30 s, and at most two blockers are delivered per user turn — past
    that a blocker is far more likely to be churn than signal, and the turn-end pass
    can still raise it.
+6. Every reviewer model call has a deadline (`requestTimeoutMs`, 45 s) and is retried
+   once on a fast transient transport failure. A call that times out is not retried —
+   that only doubles the wait — so an unreachable endpoint costs one bounded pause and
+   a visible notice, never a stuck review queue.
 
 ## Which sessions get reviewed
 
@@ -385,7 +390,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   custom providers), which the model resolver handles by falling back to the
   default with a warning.
 
-108 unit/integration tests cover the emission guard, delivery routing, transcript
+112 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -401,7 +406,7 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 108 unit/integration tests
+bun test        # 112 unit/integration tests
 bunx tsc --noEmit
 ```
 

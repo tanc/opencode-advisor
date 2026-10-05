@@ -24,12 +24,12 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 108 tests, no network and no real model |
+| `test/*.test.ts` | 112 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 108 tests
+bun test              # 112 tests
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
@@ -43,7 +43,7 @@ bunx tsc --noEmit     # both must be green before any commit
 - **The reviewer is one stateless `ctx.generate.text` call.** That API executes no
   tools, so the plugin runs the inspection loop itself: the reviewer replies with
   `{"tool":"read"|"grep"|"glob",...}` and the plugin appends `<tool-result>` blocks,
-  up to `maxToolRounds` (6) per review.
+  up to `maxToolRounds` (3) per review, one model call each.
 - **Advice has two channels.** Pushed reviews raise notes; the `advisor` tool lets the
   agent ask. A tool result renders in OpenChamber's timeline, so the pull channel is
   the only visible one. Pull answers are tombstoned and their tool results are kept
@@ -83,6 +83,10 @@ bunx tsc --noEmit     # both must be green before any commit
    (`historian`, `dreamer-*`, `compaction`, `title`) or subagent-mode (`explore`), or
    when its location is not this instance's directory. The verdict is cached per
    session and fails open on an unusable roster.
+10. **A model call cannot wedge a session.** Every reviewer call carries a deadline
+    (`requestTimeoutMs`, 45 s) and is retried once on a fast transient transport
+    failure — not on a timeout, which would double the wait. A hung endpoint used to
+    block that session's review queue for minutes; it now fails and is reported.
 
 ## Platform constraints (learned the hard way)
 

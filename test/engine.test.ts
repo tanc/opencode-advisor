@@ -12,6 +12,7 @@ function makeConfig(over: Partial<AdvisorConfig> = {}): AdvisorConfig {
     includeThinking: true,
     maxToolRounds: 6,
     maxTranscriptChars: 60_000,
+    requestTimeoutMs: 45_000,
     notify: "off",
     watchdogBlocks: [],
     warnings: [],
@@ -565,6 +566,74 @@ describe("AdvisorEngine", () => {
     expect(second).toContain("already answering")
     release()
     expect(await first).toBe("advice")
+    engine.dispose()
+  })
+
+  test("times out a hung model call instead of wedging the queue", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.generate = ({ prompt, signal }) => {
+      host.prompts.push(prompt)
+      return new Promise<string>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("The operation was aborted")))
+      })
+    }
+    const engine = new AdvisorEngine(makeConfig({ requestTimeoutMs: 30 }), host)
+    await engine.review("s1", false)
+
+    const status = engine.status("s1")
+    expect(status.lastOutcome).toBe("model error")
+    expect(status.lastError).toContain("timed out after")
+    // A timeout is not retried: one attempt, then report.
+    expect(host.prompts).toHaveLength(1)
+    engine.dispose()
+  })
+
+  test("retries a fast transient model failure once", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    let attempts = 0
+    host.generate = async ({ prompt }) => {
+      host.prompts.push(prompt)
+      attempts += 1
+      if (attempts === 1) throw new Error("read ECONNRESET")
+      return '{"notes":[{"severity":"concern","note":"recovered advice"}]}'
+    }
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    expect(host.prompts).toHaveLength(2)
+    expect(host.injections).toHaveLength(1)
+    expect(host.injections[0]!.text).toContain("recovered advice")
+    engine.dispose()
+  })
+
+  test("does not retry a permanent failure", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.generate = async ({ prompt }) => {
+      host.prompts.push(prompt)
+      throw new Error("virtual key is required")
+    }
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    expect(host.prompts).toHaveLength(1)
+    expect(engine.status("s1").lastOutcome).toBe("model error")
+    engine.dispose()
+  })
+
+  test("pull advice fails gracefully instead of throwing", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.generate = async ({ prompt }) => {
+      host.prompts.push(prompt)
+      throw new Error("socket hang up")
+    }
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    const answer = await engine.pullAdvice("s1", "anything")
+    expect(answer).toContain("Advisor unavailable")
+    expect(answer).toContain("Do not invent advice")
+    expect(host.prompts).toHaveLength(2)
+    const notices = host.injections.filter((i) => (i.metadata as { advisor?: { kind?: string } })?.advisor?.kind === "notice")
+    expect(notices).toHaveLength(1)
     engine.dispose()
   })
 

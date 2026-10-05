@@ -142,6 +142,8 @@ describe("resolveConfig", () => {
       const config = await resolveConfig({}, empty, empty)
       expect(config.enabled).toBe(false)
       expect(config.immuneTurns).toBe(3)
+      expect(config.maxToolRounds).toBe(3)
+      expect(config.requestTimeoutMs).toBe(45_000)
     } finally {
       await fs.rm(empty, { recursive: true, force: true })
     }
