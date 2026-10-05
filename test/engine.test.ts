@@ -606,6 +606,26 @@ describe("AdvisorEngine", () => {
     engine.dispose()
   })
 
+  test("retries a provider-side upstream failure once", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    let attempts = 0
+    host.generate = async ({ prompt }) => {
+      host.prompts.push(prompt)
+      attempts += 1
+      // Observed verbatim from opencode-go: a transient upstream error, not a
+      // request this plugin can fix.
+      if (attempts === 1) throw new Error("Streaming response failed: [server_error] upstream service timeout")
+      return '{"notes":[{"severity":"concern","note":"survived an upstream blip"}]}'
+    }
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    expect(host.prompts).toHaveLength(2)
+    expect(host.injections).toHaveLength(1)
+    expect(host.injections[0]!.text).toContain("survived an upstream blip")
+    engine.dispose()
+  })
+
   test("does not retry a permanent failure", async () => {
     const host = makeHost("/repo", [user, terminal])
     host.generate = async ({ prompt }) => {
