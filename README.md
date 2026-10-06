@@ -185,8 +185,9 @@ context has no config hook and no instructions domain, so guidance has to arrive
 through one of these channels:
 
 1. **The tool's own description** (shipped, always present). It already carries
-the timing rules, and the tool is registered `pinned` so it is always advertised
-rather than optional.
+the timing rules, and the tool is registered `pinned` in the hope of keeping it in front of
+the model — its effect is unverified, so treat the description and `AGENTS.md`
+as the levers that certainly work.
 2. **Your project's `AGENTS.md`** (or `CLAUDE.md`) — read by the main agent, and
    by the reviewer as extra context. Add a short section:
 

@@ -49,8 +49,10 @@ bunx tsc --noEmit     # both must be green before any commit
   agent ask. A tool result renders in OpenChamber's timeline, so the pull channel is
   the only visible one. Pull answers are tombstoned and their tool results are kept
   out of the review delta, so neither channel re-litigates the other. The tool is
-  registered `pinned` so it is always advertised — the plugin cannot inject into the
-  main agent's prompt, so pinning plus the description are its only levers.
+  registered `pinned`, though that option's effect is unverified (the schema types it
+  only alongside `codemode` and the checkout has no consumer): the plugin cannot inject
+  into the main agent's prompt, so the description and a project's `AGENTS.md` are the
+  levers that certainly work.
 - **One reviewer per directory, arbitrated by file.** `plugin/claims.ts` writes a claim
   (`~/.cache/opencode-advisor/claims/<key>-<pid>.json`) at setup; the newest claim from
   a live pid owns reviewing, and anyone else skips it — visibly, in `/advisor status`.

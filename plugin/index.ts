@@ -201,9 +201,11 @@ export default Plugin.define({
       editor.add({
         name: ADVISOR_TOOL_NAME,
         description: ADVISOR_TOOL_DESCRIPTION,
-        // Pinned so the tool is always advertised rather than optional: an
-        // unused pull tool is worth nothing, and it was never once called when
-        // advertised in the ordinary way.
+        // `pinned` is meant to keep a tool in front of the model rather than
+        // leaving it optional. Its effect is unverified: the schema types it
+        // only alongside `codemode`, and the OpenCode checkout has no consumer
+        // for it, so this may be inert. Harmless either way — the description
+        // and the project's own AGENTS.md are the levers that certainly work.
         options: { pinned: true },
         input: {
           type: "object",
