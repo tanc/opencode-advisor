@@ -25,12 +25,12 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 130 tests, no network and no real model |
+| `test/*.test.ts` | 135 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 130 tests
+bun test              # 135 tests
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
@@ -102,10 +102,17 @@ bunx tsc --noEmit     # both must be green before any commit
 11. **Review counters outlive a plugin instance.** They are persisted per session
     through `ctx.storage` and re-seeded at setup, so `/advisor status` after a reload
     reports the session's history rather than zero.
-12. **One reviewer per directory.** Reviewing is gated on a file-based claim
+12. **Project docs are read per review.** AGENTS.md and WATCHDOG.md are re-read on
+    a 10 s TTL, then carried through warnings included, so editing a doc lands within
+    seconds instead of at the next plugin reload — and a malformed file is reported
+    once rather than silently shrinking the reviewer's context.
+13. **Injected items carry `raisedAt`.** Notes, notices and command replies stamp the
+    moment they were raised (`metadata.advisor.raisedAt`), which is what makes delivery
+    lag measurable: a queued item surfaces at the next turn boundary, not when raised.
+14. **One reviewer per directory.** Reviewing is gated on a file-based claim
     (`plugin/claims.ts`); the newest live claim wins, and a non-owner says so in
     `/advisor status` rather than failing silently. Every path fails open.
-13. **A model call cannot wedge a session.** Every reviewer call carries a deadline
+15. **A model call cannot wedge a session.** Every reviewer call carries a deadline
     (`requestTimeoutMs`, 90 s) and is retried once on a fast transient transport
     failure — not on a timeout, which would double the wait. A hung endpoint used to
     block that session's review queue for minutes; it now fails and is reported.

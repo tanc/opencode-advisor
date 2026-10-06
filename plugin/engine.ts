@@ -62,6 +62,11 @@ export interface EngineHost {
   onSessionOverride?(sessionID: string, enabled: boolean | undefined): Promise<void> | void
   /** Persist review counters so /advisor status survives a plugin reload. */
   persistCounters?(sessionID: string, counters: PersistedCounters): void
+  /**
+   * Re-read the project's on-disk context (AGENTS.md, WATCHDOG.md) so a doc edit
+   * reaches the reviewer without waiting for the plugin to reload.
+   */
+  refreshContext?(): Promise<{ projectContext?: string; watchdogBlocks: string[]; warnings?: string[] } | undefined>
   /** Raise a user-facing notification (OpenChamber only; a no-op elsewhere). */
   notify?(input: NotifyInput): void
   /** Whether this instance still owns reviewing for its directory. */
@@ -135,6 +140,12 @@ const MIDTURN_MIN_INTERVAL_MS = 30_000
 /** Ceiling on delivered blockers per user turn: past this a blocker is far more
  *  likely to be churn than signal, and the turn-end pass can re-raise it. */
 const MAX_BLOCKERS_PER_USER_TURN = 2
+/**
+ * How long a freshly-read project context is reused. Long enough that a burst of
+ * step-boundary reviews costs one read, short enough that editing AGENTS.md is
+ * reflected within seconds rather than at the next plugin reload.
+ */
+const CONTEXT_TTL_MS = 10_000
 /** Attempts per reviewer model call: one retry for a fast transient failure. */
 const MAX_MODEL_ATTEMPTS = 2
 /**
@@ -249,6 +260,68 @@ export class AdvisorEngine {
   replyDelivery(sessionID: string): "steer" | "queue" {
     return this.isStreaming(sessionID) ? "steer" : "queue"
   }
+
+  /**
+   * Deliver a command reply. Steering gets an answer into a running turn
+   * immediately instead of parking it until the next boundary, but a turn can
+   * end between that decision and the post, and a steer into a finished turn is
+   * not a path worth trusting to deliver — so a failed steer is resent queued
+   * rather than dropped. A dropped reply reads as "the command did nothing".
+   */
+  async reply(sessionID: string, text: string): Promise<void> {
+    const metadata = { advisor: { kind: "command", instance: this.#host.instance, raisedAt: Date.now() } }
+    const channel = this.replyDelivery(sessionID)
+    try {
+      await this.#host.inject({ sessionID, text, description: "advisor", metadata, delivery: channel, resume: false })
+      return
+    } catch (err) {
+      if (channel !== "steer") {
+        this.#host.log("warn", "advisor reply was not delivered", { sessionID, error: (err as Error).message })
+        return
+      }
+    }
+    try {
+      await this.#host.inject({ sessionID, text, description: "advisor", metadata, delivery: "queue", resume: false })
+    } catch (retryError) {
+      this.#host.log("warn", "advisor reply was not delivered, even queued", {
+        sessionID,
+        error: (retryError as Error).message,
+      })
+    }
+  }
+
+  /**
+   * The project context to review against, read from disk on a short TTL. An
+   * instance that loaded before a doc edit would otherwise keep asserting the
+   * superseded text — which is how a retired "124 tests" figure reached the user.
+   */
+  async #projectContext(): Promise<{ projectContext?: string; watchdogBlocks: string[] }> {
+    const fallback = { projectContext: this.#config.projectContext, watchdogBlocks: this.#config.watchdogBlocks }
+    if (!this.#host.refreshContext) return fallback
+    const now = Date.now()
+    if (this.#contextCache && now - this.#contextCache.at < CONTEXT_TTL_MS) return this.#contextCache.value
+    try {
+      const fresh = await this.#host.refreshContext()
+      if (fresh) {
+        this.#contextCache = { at: now, value: fresh }
+        const warning = (fresh.warnings ?? []).join("; ")
+        if (warning && warning !== this.#contextWarned) {
+          this.#contextWarned = warning
+          this.#host.log("warn", "advisor project context has warnings", { warning })
+        }
+        return fresh
+      }
+    } catch (err) {
+      this.#host.log("warn", "advisor context refresh failed", { error: (err as Error).message })
+    }
+    this.#contextCache = { at: now, value: fallback }
+    return fallback
+  }
+
+  /** Cached result of the last on-disk context read. */
+  #contextCache?: { at: number; value: { projectContext?: string; watchdogBlocks: string[]; warnings?: string[] } }
+  /** Last logged context warning, so a malformed file is reported once, not every review. */
+  #contextWarned?: string
 
   /**
    * Restore review counters persisted before a reload. Deliberately excludes
@@ -492,7 +565,10 @@ export class AdvisorEngine {
       // Persisted here rather than on the success path so a failed pass is
       // remembered too: /advisor status should survive a reload with the same
       // numbers, and a failure that vanishes on reload reads as "never ran".
-      this.#host.persistCounters?.(sessionID, this.#countersOf(state))
+      // Skipped when our own shutdown cancelled the pass: that snapshot is
+      // half-finished, and writing it would persist a count this instance never
+      // actually reached.
+      if (!this.#abort.signal.aborted) this.#host.persistCounters?.(sessionID, this.#countersOf(state))
       const queued = state.queuedReview
       state.queuedReview = null
       if (queued) {
@@ -521,14 +597,15 @@ export class AdvisorEngine {
     guard.beginUpdate()
 
     const prior = state.priorNotes.get(advisor.slug) ?? []
+    const context = await this.#projectContext()
     const system = buildSystemPrompt({
       advisorName: advisor.name,
       maxNotes: advisor.maxNotesPerUpdate ?? this.#config.sharedMaxNotesPerUpdate ?? 4,
       maxToolRounds: this.#config.maxToolRounds,
       sharedInstructions: this.#config.sharedInstructions,
       advisorInstructions: advisor.instructions,
-      watchdogBlocks: this.#config.watchdogBlocks,
-      projectContext: this.#config.projectContext,
+      watchdogBlocks: context.watchdogBlocks,
+      projectContext: context.projectContext,
     })
 
     const granted = advisor.tools === undefined ? [...DEFAULT_TOOLS] : advisor.tools
@@ -659,7 +736,7 @@ export class AdvisorEngine {
         sessionID,
         text,
         description: channel === "preserve" ? "advisor note" : "advisor",
-        metadata: { advisor: { slug: advisor.slug, name: advisor.name, severities: group.map((n) => n.severity ?? "nit"), instance: this.#host.instance } },
+        metadata: { advisor: { slug: advisor.slug, name: advisor.name, severities: group.map((n) => n.severity ?? "nit"), instance: this.#host.instance, raisedAt: Date.now() } },
         delivery,
         resume,
       })
@@ -812,7 +889,7 @@ export class AdvisorEngine {
         sessionID,
         text,
         description: "advisor notice",
-        metadata: { advisor: { kind: "notice", instance: this.#host.instance } },
+        metadata: { advisor: { kind: "notice", instance: this.#host.instance, raisedAt: Date.now() } },
         delivery: "queue",
         resume: false,
       })

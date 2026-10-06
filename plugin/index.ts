@@ -14,7 +14,7 @@
  * twice.
  */
 import { Plugin } from "@opencode/plugin"
-import { ADVISOR_TOOL_NAME, resolveConfig, type AdvisorOptions } from "./config.ts"
+import { ADVISOR_TOOL_NAME, refreshProjectContext, resolveConfig, type AdvisorOptions } from "./config.ts"
 import { activeClaimCount, isClaimOwner, releaseClaim, writeClaim } from "./claims.ts"
 import { AdvisorEngine, type AdvisorEvent, type EngineHost, type ModelRef, type NotifyInput, type PersistedCounters } from "./engine.ts"
 import { stamp } from "./format.ts"
@@ -197,6 +197,9 @@ export default Plugin.define({
           .set(countersKey, counters as never)
           .catch((err) => console.warn(`[advisor] failed to persist counters: ${(err as Error).message}`))
       },
+      async refreshContext() {
+        return refreshProjectContext(directory)
+      },
     }
 
     const engine = new AdvisorEngine(config, host)
@@ -343,14 +346,10 @@ export default Plugin.define({
             }
             body = lines.join("\n")
           }
-          await ctx.session.synthetic({
-            sessionID,
-            text: body,
-            description: "advisor",
-            metadata: { advisor: { kind: "command" } },
-            delivery: engine.replyDelivery(sessionID),
-            resume: false,
-          })
+          // Delivered by the engine so a reply is steered into a running turn
+          // when possible, and never lost: the injection is guarded there rather
+          // than left to reject unhandled.
+          await engine.reply(sessionID, body)
         },
       })
     })

@@ -464,6 +464,26 @@ export async function discoverAdvisorFiles(
   }
 }
 
+/** Re-read the on-disk project context (AGENTS.md, WATCHDOG.md).
+ *
+ * The reviewer holds the driving agent to the project's standing instructions,
+ * so it must see the current file rather than the copy captured when the plugin
+ * loaded: a stale copy asserts retired rules as if they still applied.
+ */
+export async function refreshProjectContext(
+  cwd: string,
+  configDir = opencodeConfigDir(),
+): Promise<{ projectContext?: string; watchdogBlocks: string[]; warnings: string[] }> {
+  const discovered = await discoverAdvisorFiles(cwd, configDir)
+  return {
+    projectContext: discovered.projectContext,
+    watchdogBlocks: discovered.watchdogBlocks,
+    // Carried through rather than dropped: a malformed WATCHDOG/AGENTS.md edit
+    // mid-session would otherwise degrade the reviewer's context in silence.
+    warnings: discovered.warnings,
+  }
+}
+
 /**
  * Merge options, environment, and on-disk discovery into one config. With no
  * discovered roster, one default advisor is created from the default model.

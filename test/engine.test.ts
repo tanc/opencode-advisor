@@ -26,6 +26,9 @@ interface FakeHost extends EngineHost {
   responses: string[]
   listCalls: number
   persisted: PersistedCounters[]
+  logs: string[]
+  contextCalls: number
+  context?: { projectContext?: string; watchdogBlocks: string[]; warnings?: string[] }
   model?: ModelRef
   generateError?: string
   session?: { agent?: string; location?: { directory?: string } }
@@ -40,6 +43,12 @@ function makeHost(directory: string, messages: SessionMessage[]): FakeHost {
     responses: [],
     listCalls: 0,
     persisted: [],
+    logs: [],
+    contextCalls: 0,
+    async refreshContext() {
+      host.contextCalls += 1
+      return host.context
+    },
     persistCounters(_sessionID, counters) {
       host.persisted.push(counters)
     },
@@ -65,7 +74,9 @@ function makeHost(directory: string, messages: SessionMessage[]): FakeHost {
     async resolveModel(): Promise<ModelRef> {
       return host.model ?? { providerID: "p", id: "m" }
     },
-    log() {},
+    log(level, message, data) {
+      host.logs.push(`${level}: ${message}${data ? ` ${JSON.stringify(data)}` : ""}`)
+    },
   }
   return host
 }
@@ -711,8 +722,10 @@ describe("AdvisorEngine", () => {
     engine.dispose()
     await pending
 
-    // Our own abort is not the endpoint failing: no notice at all.
+    // Our own abort is not the endpoint failing: no notice at all, and no
+    // half-finished counters written over the stored ones.
     expect(host.injections).toHaveLength(0)
+    expect(host.persisted).toHaveLength(0)
   })
 
   test("a pull during shutdown answers quietly", async () => {
@@ -778,6 +791,81 @@ describe("AdvisorEngine", () => {
 
     await engine.review("s1", true)
     expect(engine.replyDelivery("s1")).toBe("steer")
+    engine.dispose()
+  })
+
+  test("a failed steer is resent queued rather than dropped", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[]}', '{"notes":[]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", true)
+    expect(engine.replyDelivery("s1")).toBe("steer")
+
+    const attempted: (string | undefined)[] = []
+    host.inject = async (input) => {
+      attempted.push(input.delivery)
+      if (input.delivery === "steer") throw new Error("steer rejected")
+      host.injections.push(input)
+      return "msg"
+    }
+    await engine.reply("s1", "status text")
+
+    expect(attempted).toEqual(["steer", "queue"])
+    expect(host.injections).toHaveLength(1)
+    expect(host.injections[0]!.delivery).toBe("queue")
+    engine.dispose()
+  })
+
+  test("a reply that cannot be delivered is reported, not thrown", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.inject = async () => {
+      throw new Error("session closed")
+    }
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.reply("s1", "status text")
+
+    expect(host.logs.some((l) => l.includes("advisor reply was not delivered"))).toBe(true)
+    engine.dispose()
+  })
+
+  test("notes and notices carry a raisedAt stamp", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[{"severity":"concern","note":"stamped"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    const meta = host.injections[0]!.metadata as { advisor?: { raisedAt?: number } }
+    expect(typeof meta.advisor?.raisedAt).toBe("number")
+    engine.dispose()
+  })
+
+  test("the project context is re-read per review, so a doc edit lands without a reload", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.context = { watchdogBlocks: [], projectContext: "<project-context>130 tests</project-context>" }
+    host.responses.push('{"notes":[]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    expect(host.contextCalls).toBe(1)
+    expect(host.prompts[0]).toContain("130 tests")
+
+    // A second pass inside the TTL reuses the read instead of hitting the disk again.
+    host.responses.push('{"notes":[]}')
+    await engine.review("s1", false)
+    expect(host.contextCalls).toBe(1)
+    engine.dispose()
+  })
+
+  test("a malformed context file is reported once", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.context = { watchdogBlocks: [], warnings: ["WATCHDOG.yml is not valid YAML"] }
+    host.responses.push('{"notes":[]}', '{"notes":[]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+    await engine.review("s1", false)
+
+    const warnings = host.logs.filter((l) => l.includes("project context has warnings"))
+    expect(warnings).toHaveLength(1)
     engine.dispose()
   })
 
