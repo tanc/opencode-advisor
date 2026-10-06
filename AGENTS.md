@@ -87,6 +87,8 @@ bunx tsc --noEmit     # both must be green before any commit
     (`requestTimeoutMs`, 90 s) and is retried once on a fast transient transport
     failure — not on a timeout, which would double the wait. A hung endpoint used to
     block that session's review queue for minutes; it now fails and is reported.
+    The notice names the attempt count and the first error, so "upstream service
+    timeout" is decodable without knowing which build produced it.
 
 ## Platform constraints (learned the hard way)
 

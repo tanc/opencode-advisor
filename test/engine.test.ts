@@ -657,6 +657,40 @@ describe("AdvisorEngine", () => {
     engine.dispose()
   })
 
+  test("a retried failure names the attempt count and the first error", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    let attempts = 0
+    host.generate = async ({ prompt }) => {
+      host.prompts.push(prompt)
+      attempts += 1
+      if (attempts === 1) throw new Error("first: read ECONNRESET")
+      throw new Error("last: upstream service timeout")
+    }
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    const notice = host.injections.find((i) => (i.metadata as { advisor?: { kind?: string } })?.advisor?.kind === "notice")
+    expect(notice).toBeDefined()
+    expect(notice!.text).toContain("2 attempts")
+    expect(notice!.text).toContain("first: read ECONNRESET")
+    expect(notice!.text).toContain("last: upstream service timeout")
+    engine.dispose()
+  })
+
+  test("a failure that was not retried says so", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.generate = async ({ prompt }) => {
+      host.prompts.push(prompt)
+      throw new Error("virtual key is required")
+    }
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    const notice = host.injections.find((i) => (i.metadata as { advisor?: { kind?: string } })?.advisor?.kind === "notice")
+    expect(notice!.text).toContain("not retried: not a transient failure")
+    engine.dispose()
+  })
+
   test("a note never resumes an idle session", async () => {
     const host = makeHost("/repo", [user, terminal])
     host.responses.push('{"notes":[{"severity":"blocker","note":"Stop and fix the schema"}]}')

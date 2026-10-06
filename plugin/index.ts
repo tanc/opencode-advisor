@@ -265,10 +265,14 @@ export default Plugin.define({
           } else {
             const status = engine.status(sessionID)
             const isDump = args === "dump"
+            // Every card is stamped with the moment it was generated. Without
+            // it a card from yesterday reads exactly like live state, because
+            // the only time in it belongs to the last review, not to the card.
+            const asOf = ` · as of ${new Date().toLocaleTimeString()}`
             const lines = [
               status.enabled
-                ? `Advisor: on${status.override === undefined ? " (plugin default)" : " (this session)"}`
-                : "Advisor: off — run /advisor on to enable it for this session",
+                ? `Advisor: on${status.override === undefined ? " (plugin default)" : " (this session)"}${asOf}`
+                : `Advisor: off${asOf} — run /advisor on to enable it for this session`,
             ]
             if (status.enabled) {
               for (const a of status.advisors) {

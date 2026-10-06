@@ -124,8 +124,23 @@ const MAX_MODEL_ATTEMPTS = 2
 const TRANSIENT_FAILURE = /ECONN|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|socket hang up|getaddrinfo|network|stream ended|streaming response failed|finish_reason|premature close|connection (lost|reset|closed)|fetch failed|upstream service timeout|server_error|overloaded|service unavailable|internal server error|bad gateway|gateway timeout|\b(429|502|503|504)\b/i
 
 function isTransientFailure(error: unknown): boolean {
-  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+  const message = error instanceof Error ? error.message : String(error)
   return TRANSIENT_FAILURE.test(message)
+}
+
+/**
+ * Say what was attempted, so a failure notice is decodable on its own.
+ *
+ * "upstream service timeout" is ambiguous: it is the same text whether the
+ * plugin is running a build that retries and lost both attempts, or one that
+ * never retried at all. Naming the attempt count and the first failure removes
+ * that ambiguity from every future occurrence.
+ */
+function describeFailure(error: unknown, attempts: number, firstError: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  if (attempts <= 1) return `${message} (one attempt; not retried: not a transient failure)`
+  const first = firstError instanceof Error ? firstError.message : String(firstError)
+  return `${message} (${attempts} attempts; first failure: ${first})`
 }
 /** How long a session's reviewability verdict is trusted. */
 const SESSION_FILTER_TTL_MS = 5 * 60_000
@@ -662,7 +677,7 @@ export class AdvisorEngine {
    * an endpoint that has already proved it is not answering.
    */
   async #callModel(advisor: AdvisorSpec | undefined, model: ModelRef | undefined, prompt: string): Promise<string> {
-    let lastError: unknown
+    let firstError: unknown
     for (let attempt = 0; attempt < MAX_MODEL_ATTEMPTS; attempt++) {
       const controller = new AbortController()
       const onAbort = () => controller.abort()
@@ -675,10 +690,10 @@ export class AdvisorEngine {
       try {
         return await this.#host.generate({ model, prompt, signal: controller.signal })
       } catch (err) {
-        lastError = err
+        if (firstError === undefined) firstError = err
         if (this.#abort.signal.aborted) throw err
         if (timedOut) {
-          throw new Error(`timed out after ${Math.round(this.#config.requestTimeoutMs / 1000)}s`)
+          throw new Error(`timed out after ${Math.round(this.#config.requestTimeoutMs / 1000)}s (no retry: a timeout is not retried)`)
         }
         if (attempt < MAX_MODEL_ATTEMPTS - 1 && isTransientFailure(err)) {
           this.#host.log("debug", "advisor retrying a transient model failure", {
@@ -687,13 +702,13 @@ export class AdvisorEngine {
           })
           continue
         }
-        throw err
+        throw new Error(describeFailure(err, attempt + 1, firstError))
       } finally {
         clearTimeout(timer)
         this.#abort.signal.removeEventListener("abort", onAbort)
       }
     }
-    throw lastError
+    throw new Error(describeFailure(firstError, MAX_MODEL_ATTEMPTS, firstError))
   }
 
   /**
