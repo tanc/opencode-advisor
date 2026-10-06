@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { AdvisorConfig } from "../plugin/config.ts"
-import { AdvisorEngine, type EngineHost, type InjectInput, type ModelRef, type NotifyInput } from "../plugin/engine.ts"
+import { AdvisorEngine, type EngineHost, type InjectInput, type ModelRef, type NotifyInput, type PersistedCounters } from "../plugin/engine.ts"
 import type { SessionMessage } from "../plugin/transcript.ts"
 
 function makeConfig(over: Partial<AdvisorConfig> = {}): AdvisorConfig {
@@ -25,6 +25,7 @@ interface FakeHost extends EngineHost {
   prompts: string[]
   responses: string[]
   listCalls: number
+  persisted: PersistedCounters[]
   model?: ModelRef
   generateError?: string
   session?: { agent?: string; location?: { directory?: string } }
@@ -38,6 +39,10 @@ function makeHost(directory: string, messages: SessionMessage[]): FakeHost {
     prompts: [],
     responses: [],
     listCalls: 0,
+    persisted: [],
+    persistCounters(_sessionID, counters) {
+      host.persisted.push(counters)
+    },
     async listMessages() {
       host.listCalls += 1
       return messages
@@ -688,6 +693,91 @@ describe("AdvisorEngine", () => {
 
     const notice = host.injections.find((i) => (i.metadata as { advisor?: { kind?: string } })?.advisor?.kind === "notice")
     expect(notice!.text).toContain("not retried: not a transient failure")
+    engine.dispose()
+  })
+
+  test("a plugin shutdown does not page the user", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.generate = ({ signal }) =>
+      new Promise<string>((_resolve, reject) => {
+        signal.addEventListener("abort", () =>
+          reject(new Error("Connection lost while reading the response: ECONNRESET")),
+        )
+      })
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    const pending = engine.review("s1", false)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    engine.dispose()
+    await pending
+
+    // Our own abort is not the endpoint failing: no notice at all.
+    expect(host.injections).toHaveLength(0)
+  })
+
+  test("a pull during shutdown answers quietly", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.generate = ({ signal }) =>
+      new Promise<string>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("ECONNRESET")))
+      })
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    const pending = engine.pullAdvice("s1", "anything")
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    engine.dispose()
+    expect(await pending).toContain("shutting down")
+    expect(host.injections).toHaveLength(0)
+  })
+
+  test("counters can be seeded, so a reload does not read as never-reviewed", () => {
+    const host = makeHost("/repo", [user, terminal])
+    const engine = new AdvisorEngine(makeConfig(), host)
+    engine.seedCounters("s1", {
+      reviews: 50,
+      notesDelivered: 37,
+      lastNoteCount: 0,
+      lastReviewAt: 1_700_000_000_000,
+      lastOutcome: "no notes",
+    })
+
+    const status = engine.status("s1")
+    expect(status.reviews).toBe(50)
+    expect(status.notesDelivered).toBe(37)
+    expect(status.lastOutcome).toBe("no notes")
+    engine.dispose()
+  })
+
+  test("a completed pass persists its counters", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    const last = host.persisted.at(-1)
+    expect(last?.reviews).toBe(1)
+    expect(last?.lastOutcome).toBe("no notes")
+    engine.dispose()
+  })
+
+  test("a failed pass persists its failure, not just its success", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.generateError = "virtual key is required"
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    expect(host.persisted.at(-1)?.lastError).toContain("virtual key is required")
+    engine.dispose()
+  })
+
+  test("command replies are queued when idle and immediate while streaming", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[]}', '{"notes":[]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+    expect(engine.replyDelivery("s1")).toBe("queue")
+
+    await engine.review("s1", true)
+    expect(engine.replyDelivery("s1")).toBe("steer")
     engine.dispose()
   })
 

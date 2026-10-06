@@ -60,6 +60,8 @@ export interface EngineHost {
   listAgents?(): Promise<{ id: string; mode?: string; hidden?: boolean }[]>
   /** Persist a per-session enable override so it survives a plugin reload. */
   onSessionOverride?(sessionID: string, enabled: boolean | undefined): Promise<void> | void
+  /** Persist review counters so /advisor status survives a plugin reload. */
+  persistCounters?(sessionID: string, counters: PersistedCounters): void
   /** Raise a user-facing notification (OpenChamber only; a no-op elsewhere). */
   notify?(input: NotifyInput): void
   /** Whether this instance still owns reviewing for its directory. */
@@ -74,6 +76,23 @@ export interface NotifyInput {
   directory: string
   /** Ask to show even when the user is looking at OpenChamber. */
   showWhenFocused: boolean
+}
+
+/**
+ * Review counters that outlive a plugin instance.
+ *
+ * Every reload builds a new instance with blank counters, which made status read
+ * "Reviews 0 · no review yet" on sessions with dozens of reviews, and made
+ * successive cards disagree with each other. Persisting them is what makes the
+ * numbers mean "this session" rather than "this instance since it loaded".
+ */
+export interface PersistedCounters {
+  reviews: number
+  notesDelivered: number
+  lastNoteCount: number
+  lastReviewAt?: number
+  lastOutcome?: string
+  lastError?: string
 }
 
 interface SessionState {
@@ -214,6 +233,47 @@ export class AdvisorEngine {
   #isEnabled(sessionID: string): boolean {
     const state = this.#sessions.get(sessionID)
     return state?.enabled ?? this.#config.enabled
+  }
+
+  /** Whether a turn is running, which is what routing keys off. */
+  isStreaming(sessionID: string): boolean {
+    return this.#sessions.get(sessionID)?.streaming ?? false
+  }
+
+  /**
+   * How a command reply should be delivered. Queued synthetics drain at the next
+   * turn boundary, which can leave an answer sitting for twenty minutes during a
+   * long turn; while one is running, steer it in immediately instead. Never
+   * resumes: a reply must not start a turn of its own.
+   */
+  replyDelivery(sessionID: string): "steer" | "queue" {
+    return this.isStreaming(sessionID) ? "steer" : "queue"
+  }
+
+  /**
+   * Restore review counters persisted before a reload. Deliberately excludes
+   * `reviewedCount`: which transcript slice has been seen is per instance, and
+   * a fresh instance should re-read the current turn rather than skip it.
+   */
+  seedCounters(sessionID: string, counters: Partial<PersistedCounters>): void {
+    const state = this.#state(sessionID)
+    if (typeof counters.reviews === "number") state.reviews = counters.reviews
+    if (typeof counters.notesDelivered === "number") state.notesDelivered = counters.notesDelivered
+    if (typeof counters.lastNoteCount === "number") state.lastNoteCount = counters.lastNoteCount
+    if (typeof counters.lastReviewAt === "number") state.lastReviewAt = counters.lastReviewAt
+    if (typeof counters.lastOutcome === "string") state.lastOutcome = counters.lastOutcome
+    if (typeof counters.lastError === "string") state.lastError = counters.lastError
+  }
+
+  #countersOf(state: SessionState): PersistedCounters {
+    return {
+      reviews: state.reviews,
+      notesDelivered: state.notesDelivered,
+      lastNoteCount: state.lastNoteCount,
+      lastReviewAt: state.lastReviewAt,
+      lastOutcome: state.lastOutcome,
+      lastError: state.lastError,
+    }
   }
 
   setSessionEnabled(sessionID: string, enabled: boolean | undefined, persist = true): boolean {
@@ -420,11 +480,19 @@ export class AdvisorEngine {
       state.lastNoteCount = notes
       state.lastReviewAt = Date.now()
     } catch (err) {
+      if (this.#abort.signal.aborted) {
+        state.lastOutcome = "aborted"
+        return
+      }
       state.lastError = (err as Error).message
       this.#host.log("warn", "advisor review failed", { sessionID, error: (err as Error).message })
     } finally {
       state.reviewInProgress = false
       state.backlog = Math.max(0, state.backlog - 1)
+      // Persisted here rather than on the success path so a failed pass is
+      // remembered too: /advisor status should survive a reload with the same
+      // numbers, and a failure that vanishes on reload reads as "never ran".
+      this.#host.persistCounters?.(sessionID, this.#countersOf(state))
       const queued = state.queuedReview
       state.queuedReview = null
       if (queued) {
@@ -476,6 +544,14 @@ export class AdvisorEngine {
       try {
         text = await this.#callModel(advisor, model, prompt)
       } catch (err) {
+        // Our own abort means this instance is shutting down: a reload or a
+        // dispose cancelled the call mid-flight, and the SDK reports that as a
+        // transport error. That is not the endpoint failing, and paging the user
+        // about our own shutdown makes every plugin edit look like an outage.
+        if (this.#abort.signal.aborted) {
+          state.lastOutcome = "aborted"
+          return 0
+        }
         const message = (err as Error).message
         state.lastError = message
         this.#host.log("warn", "advisor model call failed", { advisor: advisor.name, error: message })
@@ -650,10 +726,12 @@ export class AdvisorEngine {
       const advisor = this.#config.advisors.find((a) => a.enabled)
       const model = await this.#host.resolveModel(advisor?.model ?? this.#config.model)
       const prompt = buildAdvicePrompt({ advisorName: advisor?.name ?? "Advisor", transcript, question })
+      if (this.#abort.signal.aborted) return "Advisor unavailable: the plugin is shutting down."
       let text: string
       try {
         text = (await this.#callModel(advisor, model, prompt)).trim()
       } catch (err) {
+        if (this.#abort.signal.aborted) return "Advisor unavailable: the plugin is shutting down."
         // A pull that throws becomes a tool error the agent cannot interpret,
         // and an agent with a failed tool will sometimes invent the answer.
         const message = (err as Error).message

@@ -16,7 +16,8 @@
 import { Plugin } from "@opencode/plugin"
 import { ADVISOR_TOOL_NAME, resolveConfig, type AdvisorOptions } from "./config.ts"
 import { activeClaimCount, isClaimOwner, releaseClaim, writeClaim } from "./claims.ts"
-import { AdvisorEngine, type AdvisorEvent, type EngineHost, type ModelRef, type NotifyInput } from "./engine.ts"
+import { AdvisorEngine, type AdvisorEvent, type EngineHost, type ModelRef, type NotifyInput, type PersistedCounters } from "./engine.ts"
+import { stamp } from "./format.ts"
 import { instanceClosed, instanceOpened } from "./instances.ts"
 import { matchModel, type RegistryModel } from "./model.ts"
 import { ADVISOR_TOOL_DESCRIPTION } from "./prompts.ts"
@@ -96,10 +97,13 @@ export default Plugin.define({
 
     const controller = new AbortController()
 
-    // Per-session enable overrides are persisted so `/advisor on` survives a
-    // plugin reload (OpenChamber reloads plugins on config/plugin changes).
+    // Per-session enable overrides and review counters are persisted so both
+    // `/advisor on` and the numbers in `/advisor status` survive a plugin reload
+    // (OpenChamber reloads plugins on config/plugin changes).
     const storageKey = "sessionEnabled"
+    const countersKey = "sessionCounters"
     const overrides: Record<string, boolean> = {}
+    const counters: Record<string, PersistedCounters> = {}
     const persistOverrides = async () => {
       const keys = Object.keys(overrides)
       for (const stale of keys.slice(0, Math.max(0, keys.length - 200))) delete overrides[stale]
@@ -185,6 +189,14 @@ export default Plugin.define({
       notify(input) {
         void postNotification(input).catch((err) => console.warn(`[advisor] notification failed: ${(err as Error).message}`))
       },
+      persistCounters(sessionID, next) {
+        counters[sessionID] = next
+        const keys = Object.keys(counters)
+        for (const stale of keys.slice(0, Math.max(0, keys.length - 200))) delete counters[stale]
+        void ctx.storage
+          .set(countersKey, counters as never)
+          .catch((err) => console.warn(`[advisor] failed to persist counters: ${(err as Error).message}`))
+      },
     }
 
     const engine = new AdvisorEngine(config, host)
@@ -224,6 +236,20 @@ export default Plugin.define({
         },
       })
     })
+
+    try {
+      const storedCounters = await ctx.storage.get(countersKey)
+      if (storedCounters && typeof storedCounters === "object" && !Array.isArray(storedCounters)) {
+        for (const [id, value] of Object.entries(storedCounters as unknown as Record<string, PersistedCounters>)) {
+          if (value && typeof value === "object") {
+            counters[id] = value
+            engine.seedCounters(id, value)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[advisor] failed to read stored counters: ${(err as Error).message}`)
+    }
 
     try {
       const stored = await ctx.storage.get(storageKey)
@@ -276,10 +302,11 @@ export default Plugin.define({
           } else {
             const status = engine.status(sessionID)
             const isDump = args === "dump"
-            // Every card is stamped with the moment it was generated. Without
-            // it a card from yesterday reads exactly like live state, because
-            // the only time in it belongs to the last review, not to the card.
-            const asOf = ` · as of ${new Date().toLocaleTimeString()}`
+            // Every card is stamped with the moment it was generated. Without it
+            // a card from yesterday reads exactly like live state, because the
+            // only time in it belongs to the last review, not to the card; the
+            // date appears as soon as the moment is not today.
+            const asOf = ` · as of ${stamp(Date.now())}`
             const lines = [
               status.enabled
                 ? `Advisor: on${status.override === undefined ? " (plugin default)" : " (this session)"}${asOf}`
@@ -296,7 +323,7 @@ export default Plugin.define({
             lines.push(
               `Reviews ${status.reviews} · delivered ${status.notesDelivered} · backlog ${status.backlog}` +
                 (status.lastReviewAt
-                  ? ` · last ${new Date(status.lastReviewAt).toLocaleTimeString()} (${status.lastOutcome ?? `${status.lastNoteCount} notes`})`
+                  ? ` · last ${stamp(status.lastReviewAt)} (${status.lastOutcome ?? `${status.lastNoteCount} notes`})`
                   : " · no review yet"),
             )
             if (status.lastError) lines.push(`Last error: ${status.lastError}`)
@@ -310,7 +337,7 @@ export default Plugin.define({
             if (isDump) {
               for (const a of status.advisors) {
                 if (a.items.length === 0) continue
-                lines.push("", `${a.name} advice (${a.items.length}):`)
+                lines.push("", `${a.name} raised earlier (${a.items.length}) — history, kept only so the reviewer does not repeat itself:`)
                 for (const item of a.items) lines.push(`- ${item}`)
               }
             }
@@ -321,7 +348,7 @@ export default Plugin.define({
             text: body,
             description: "advisor",
             metadata: { advisor: { kind: "command" } },
-            delivery: "queue",
+            delivery: engine.replyDelivery(sessionID),
             resume: false,
           })
         },

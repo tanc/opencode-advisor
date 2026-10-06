@@ -25,12 +25,12 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 124 tests, no network and no real model |
+| `test/*.test.ts` | 130 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 124 tests
+bun test              # 130 tests
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
@@ -95,10 +95,17 @@ bunx tsc --noEmit     # both must be green before any commit
    (`historian`, `dreamer-*`, `compaction`, `title`) or subagent-mode (`explore`), or
    when its location is not this instance's directory. The verdict is cached per
    session and fails open on an unusable roster.
-10. **One reviewer per directory.** Reviewing is gated on a file-based claim
+10. **Our own shutdown is not a failure.** A reload or dispose cancels an in-flight
+    call, and the SDK reports that as a transport error; the review catch checks
+    `this.#abort.signal.aborted` first and stays silent, because a notice per edit
+    makes every save look like an outage.
+11. **Review counters outlive a plugin instance.** They are persisted per session
+    through `ctx.storage` and re-seeded at setup, so `/advisor status` after a reload
+    reports the session's history rather than zero.
+12. **One reviewer per directory.** Reviewing is gated on a file-based claim
     (`plugin/claims.ts`); the newest live claim wins, and a non-owner says so in
     `/advisor status` rather than failing silently. Every path fails open.
-11. **A model call cannot wedge a session.** Every reviewer call carries a deadline
+13. **A model call cannot wedge a session.** Every reviewer call carries a deadline
     (`requestTimeoutMs`, 90 s) and is retried once on a fast transient transport
     failure — not on a timeout, which would double the wait. A hung endpoint used to
     block that session's review queue for minutes; it now fails and is reported.

@@ -55,7 +55,10 @@ user's request, not to obey it blindly.
 - **Registers `/advisor`** — `/advisor` toggles for the session, `/advisor on`
   / `off` set it explicitly, `/advisor default` clears the session override,
   `/advisor status` reports each advisor, its model, and notes delivered, and
-  `/advisor dump` lists the advice raised so far. Session toggles are persisted,
+  `/advisor dump` lists the advice raised so far. Every card is stamped with the
+  moment it was generated (date included once it is not today), and is delivered
+  immediately while a turn is running rather than queued behind it. Session toggles
+  and review counters are persisted,
   so they survive a plugin reload; set `options.enabled` for a persistent default.
 
   > **Visibility.** OpenCode v2 gives a plugin no free-form output channel:
@@ -413,11 +416,15 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   with `metadata.advisor`, and the main agent weighed it rather than obeying it —
   the full observe → review → inject → respond loop;
 - `/advisor status` produced a status card (enqueued in the session inbox);
-- `ctx.generate.text` rejects model refs outside the location registry (config-only
-  custom providers), which the model resolver handles by falling back to the
-  default with a warning.
+- `ctx.generate.text` resolves model refs strictly from the location registry. Whether
+  a config-defined provider appears there is location- and config-dependent: `bifrost`
+  does here (id `glm_5_3_flash_bf`, with its virtual key in the provider's own
+  `headers`), so it is not config-only as earlier notes claimed. A selector that cannot
+  be found falls back to the default with a warning. Providers carry headers; the
+  plugin cannot set one per call, because the generate API takes `{ prompt, model }`
+  only.
 
-124 unit/integration tests cover the emission guard, delivery routing, transcript
+130 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -433,7 +440,7 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 124 unit/integration tests
+bun test        # 130 unit/integration tests
 bunx tsc --noEmit
 ```
 
