@@ -153,7 +153,7 @@ const MAX_MODEL_ATTEMPTS = 2
  * transport reason. Auth, model-resolution and configuration failures are
  * deliberately absent — retrying those only spends time to fail again.
  */
-const TRANSIENT_FAILURE = /ECONN|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|socket hang up|getaddrinfo|network|stream ended|streaming response failed|finish_reason|premature close|connection (lost|reset|closed)|fetch failed|upstream service timeout|server_error|overloaded|service unavailable|internal server error|bad gateway|gateway timeout|\b(429|502|503|504)\b/i
+const TRANSIENT_FAILURE = /ECONN|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|socket hang up|getaddrinfo|network|stream ended|streaming response failed|finish_reason|premature close|connection (lost|reset|closed)|provider closed the stream|completion marker|mid-stream|fetch failed|upstream service timeout|server_error|overloaded|service unavailable|internal server error|bad gateway|gateway timeout|\b(429|502|503|504)\b/i
 
 function isTransientFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)

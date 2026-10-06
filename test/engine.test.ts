@@ -642,6 +642,26 @@ describe("AdvisorEngine", () => {
     engine.dispose()
   })
 
+  test("retries a stream cut before the completion marker", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    let attempts = 0
+    host.generate = async ({ prompt }) => {
+      host.prompts.push(prompt)
+      attempts += 1
+      // Observed verbatim from bifrost: a truncated stream, which is exactly what
+      // a retry is for. It was previously classified as permanent and not retried.
+      if (attempts === 1) throw new Error("provider closed the stream before sending a completion marker (upstream connection ended mid-stream)")
+      return '{"notes":[{"severity":"concern","note":"recovered from a cut stream"}]}'
+    }
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    expect(host.prompts).toHaveLength(2)
+    expect(host.injections).toHaveLength(1)
+    expect(host.injections[0]!.text).toContain("recovered from a cut stream")
+    engine.dispose()
+  })
+
   test("does not retry a permanent failure", async () => {
     const host = makeHost("/repo", [user, terminal])
     host.generate = async ({ prompt }) => {

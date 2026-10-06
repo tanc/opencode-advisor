@@ -25,12 +25,12 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 136 tests, no network and no real model |
+| `test/*.test.ts` | 137 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 136 tests
+bun test              # 137 tests
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
