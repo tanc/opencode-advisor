@@ -15,6 +15,7 @@
  */
 import { Plugin } from "@opencode/plugin"
 import { ADVISOR_TOOL_NAME, resolveConfig, type AdvisorOptions } from "./config.ts"
+import { activeClaimCount, isClaimOwner, releaseClaim, writeClaim } from "./claims.ts"
 import { AdvisorEngine, type AdvisorEvent, type EngineHost, type ModelRef, type NotifyInput } from "./engine.ts"
 import { instanceClosed, instanceOpened } from "./instances.ts"
 import { matchModel, type RegistryModel } from "./model.ts"
@@ -187,6 +188,10 @@ export default Plugin.define({
     }
 
     const engine = new AdvisorEngine(config, host)
+    // Claim reviewing for this directory. A second server, or an instance from
+    // a reload that has not been disposed, loses to the newer claim instead of
+    // reviewing the same sessions with its own state.
+    writeClaim({ directory, instance })
 
     // Pull-mode advice: an `advisor` tool the agent can call. The answer is the
     // tool's own result, which renders in OpenChamber's timeline — the one
@@ -196,6 +201,10 @@ export default Plugin.define({
       editor.add({
         name: ADVISOR_TOOL_NAME,
         description: ADVISOR_TOOL_DESCRIPTION,
+        // Pinned so the tool is always advertised rather than optional: an
+        // unused pull tool is worth nothing, and it was never once called when
+        // advertised in the ordinary way.
+        options: { pinned: true },
         input: {
           type: "object",
           properties: {
@@ -290,6 +299,10 @@ export default Plugin.define({
             )
             if (status.lastError) lines.push(`Last error: ${status.lastError}`)
             if (status.modelWarning) lines.push(`! ${status.modelWarning}`)
+            if (!status.owner)
+              lines.push(
+                `! not reviewing: ${activeClaimCount(directory)} live instance(s) claim this directory and a newer one owns it`,
+              )
             if (status.instances > 1) lines.push(`! ${status.instances} plugin instances are live in this process; each reviews independently`)
             if (isDump) lines.push(`Instance ${status.instance ?? "?"} · directory ${directory}`)
             if (isDump) {
@@ -315,6 +328,7 @@ export default Plugin.define({
 
     return () => {
       controller.abort()
+      releaseClaim({ directory })
       instanceClosed()
       engine.dispose()
     }

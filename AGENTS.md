@@ -20,16 +20,17 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/index.ts` | `Plugin.define`, event subscription, the `/advisor` command, the `advisor` pull tool, and the host: synthetic injection, model resolution, notifications, `ctx.storage` |
 | `plugin/engine.ts` | observation → review → delivery; session state; routing; backlog |
 | `plugin/guard.ts` | `EmissionGuard` (noise, duplicates, per-update budget) and `resolveChannel` (delivery routing) |
+| `plugin/claims.ts` | file-based review ownership across processes |
 | `plugin/model.ts` | reviewer model selection: selector parsing and registry matching |
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 112 tests, no network and no real model |
+| `test/*.test.ts` | 124 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 112 tests
+bun test              # 124 tests
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
@@ -47,7 +48,16 @@ bunx tsc --noEmit     # both must be green before any commit
 - **Advice has two channels.** Pushed reviews raise notes; the `advisor` tool lets the
   agent ask. A tool result renders in OpenChamber's timeline, so the pull channel is
   the only visible one. Pull answers are tombstoned and their tool results are kept
-  out of the review delta, so neither channel re-litigates the other.
+  out of the review delta, so neither channel re-litigates the other. The tool is
+  registered `pinned` so it is always advertised — the plugin cannot inject into the
+  main agent's prompt, so pinning plus the description are its only levers.
+- **One reviewer per directory, arbitrated by file.** `plugin/claims.ts` writes a claim
+  (`~/.cache/opencode-advisor/claims/<key>-<pid>.json`) at setup; the newest claim from
+  a live pid owns reviewing, and anyone else skips it — visibly, in `/advisor status`.
+  File-based because in-memory state is per module evaluation: a reloaded module sees
+  only itself and another process sees nothing at all, so only a file can coordinate
+  the two-servers case. Every path fails open — a broken claim directory means "review
+  anyway", never a silently disabled reviewer.
 - **Delivery is `ctx.session.synthetic`** with `delivery: "steer" | "queue"` and
   `resume`. Notes carry `metadata.advisor`, and `isAdvisorMessage` makes the reviewer
   ignore its own output.
@@ -83,7 +93,10 @@ bunx tsc --noEmit     # both must be green before any commit
    (`historian`, `dreamer-*`, `compaction`, `title`) or subagent-mode (`explore`), or
    when its location is not this instance's directory. The verdict is cached per
    session and fails open on an unusable roster.
-10. **A model call cannot wedge a session.** Every reviewer call carries a deadline
+10. **One reviewer per directory.** Reviewing is gated on a file-based claim
+    (`plugin/claims.ts`); the newest live claim wins, and a non-owner says so in
+    `/advisor status` rather than failing silently. Every path fails open.
+11. **A model call cannot wedge a session.** Every reviewer call carries a deadline
     (`requestTimeoutMs`, 90 s) and is retried once on a fast transient transport
     failure — not on a timeout, which would double the wait. A hung endpoint used to
     block that session's review queue for minutes; it now fails and is reported.

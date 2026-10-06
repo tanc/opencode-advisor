@@ -255,7 +255,7 @@ function escapeAttr(text: string): string {
 }
 
 /** Tool-description for the pull-mode `advisor` tool, adapted from omp's advisor() tool. */
-export const ADVISOR_TOOL_DESCRIPTION = `Consult the advisor - a second model that reads this session's transcript and returns concise, actionable strategic advice.
+export const ADVISOR_TOOL_DESCRIPTION = `Consult the advisor - a second model that reads this session's transcript and returns concise, actionable strategic advice. Call it BEFORE committing to an approach, when you are stuck, and before declaring the task complete.
 
 When to call:
 - BEFORE substantive work: after orientation (finding files, reading code), before writing code or committing to an interpretation

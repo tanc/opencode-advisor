@@ -174,6 +174,32 @@ declaring done.
   never re-litigates it, and the tool's result is kept out of the review delta.
 - The advice answers from the transcript only — it does not inspect files.
 
+## Telling the agent when to consult the tool
+
+There is no shipped `WATCHDOG.md`, and `WATCHDOG.md` is the wrong place for this
+anyway: it is *reviewer-only* guidance, appended to the advisor's own system
+prompt, and the main agent never sees it.
+
+The plugin also cannot inject into the main agent's prompt — the v2 plugin
+context has no config hook and no instructions domain, so guidance has to arrive
+through one of these channels:
+
+1. **The tool's own description** (shipped, always present). It already carries
+the timing rules, and the tool is registered `pinned` so it is always advertised
+rather than optional.
+2. **Your project's `AGENTS.md`** (or `CLAUDE.md`) — read by the main agent, and
+   by the reviewer as extra context. Add a short section:
+
+   ```md
+   ## Advisor
+   Call the `advisor` tool before committing to an approach, when stuck, and
+   before declaring a task complete. Weigh its advice; override only with
+   primary-source evidence that contradicts a specific claim.
+   ```
+
+3. **A discovered `WATCHDOG.md`** if you want the *reviewer* to expect that
+   behaviour (for example, to stop it re-raising what the advisor already said).
+
 ## Give the reviewer project-specific priorities
 
 Put reviewer-only guidance in `WATCHDOG.md`. This is the best place for
@@ -390,7 +416,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   custom providers), which the model resolver handles by falling back to the
   default with a warning.
 
-112 unit/integration tests cover the emission guard, delivery routing, transcript
+124 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -406,7 +432,7 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 112 unit/integration tests
+bun test        # 124 unit/integration tests
 bunx tsc --noEmit
 ```
 

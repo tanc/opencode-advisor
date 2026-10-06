@@ -62,6 +62,8 @@ export interface EngineHost {
   onSessionOverride?(sessionID: string, enabled: boolean | undefined): Promise<void> | void
   /** Raise a user-facing notification (OpenChamber only; a no-op elsewhere). */
   notify?(input: NotifyInput): void
+  /** Whether this instance still owns reviewing for its directory. */
+  isClaimOwner?: () => boolean
   log(level: "debug" | "warn", message: string, data?: Record<string, unknown>): void
 }
 
@@ -348,6 +350,13 @@ export class AdvisorEngine {
 
   async review(sessionID: string, streaming: boolean): Promise<void> {
     const state = this.#state(sessionID)
+    // Losing the review claim is not a failure: another instance for this
+    // directory is newer, and two reviewers means two sets of state, two
+    // budgets and duplicate notes. Stay quiet and let the owner work.
+    if (this.#host.isClaimOwner && !this.#host.isClaimOwner()) {
+      state.backlog = 0
+      return
+    }
     if (!(await this.#isReviewable(sessionID))) {
       state.backlog = 0
       return
@@ -788,6 +797,8 @@ export class AdvisorEngine {
     instances: number
     /** This engine's instance id. */
     instance?: string
+    /** False when another live instance owns reviewing for this directory. */
+    owner: boolean
   } {
     const state = this.#state(sessionID)
     const enabled = this.#isEnabled(sessionID)
@@ -817,6 +828,7 @@ export class AdvisorEngine {
       modelWarning: state.lastModelWarning,
       instances: liveInstances(),
       instance: this.#host.instance,
+      owner: this.#host.isClaimOwner ? this.#host.isClaimOwner() : true,
     }
   }
 
