@@ -329,7 +329,7 @@ export default Plugin.define({
                   ? ` · last ${stamp(status.lastReviewAt)} (${status.lastOutcome ?? `${status.lastNoteCount} notes`})`
                   : " · no review yet"),
             )
-            if (status.lastError) lines.push(`Last error: ${status.lastError}`)
+            if (status.lastError) lines.push(`Last error: ${status.lastError.slice(0, 160)}`)
             if (status.modelWarning) lines.push(`! ${status.modelWarning}`)
             if (!status.owner)
               lines.push(

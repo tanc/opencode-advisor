@@ -869,6 +869,21 @@ describe("AdvisorEngine", () => {
     engine.dispose()
   })
 
+  test("an unparseable reply keeps an excerpt, so the next one is diagnosable", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push("I think the change looks fine to me, no notes needed.")
+    const engine = new AdvisorEngine(makeConfig(), host)
+    await engine.review("s1", false)
+
+    const status = engine.status("s1")
+    expect(status.lastOutcome).toBe("unparseable reply")
+    expect(status.lastError).toContain("unparseable reply:")
+    expect(status.lastError).toContain("I think the change looks fine")
+    // Persisted too, so a reload does not erase the only evidence it happened.
+    expect(host.persisted.at(-1)?.lastError).toContain("unparseable reply:")
+    engine.dispose()
+  })
+
   test("a note never resumes an idle session", async () => {
     const host = makeHost("/repo", [user, terminal])
     host.responses.push('{"notes":[{"severity":"blocker","note":"Stop and fix the schema"}]}')

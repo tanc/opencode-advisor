@@ -661,7 +661,12 @@ export class AdvisorEngine {
         state.lastOutcome = streaming ? `${count} (in progress)` : count
         return routed
       }
-      this.#host.log("debug", "advisor returned an unparseable reply", { advisor: advisor.name })
+      // Kept, not just counted: a reviewer that answers outside the protocol is
+      // undiagnosable from a label alone, and the log is not persisted, so the
+      // excerpt goes where the user will actually see it — /advisor status.
+      const excerpt = reply.raw.replace(/\s+/g, " ").trim().slice(0, 200) || "(empty reply)"
+      this.#host.log("debug", "advisor returned an unparseable reply", { advisor: advisor.name, excerpt })
+      state.lastError = `unparseable reply: ${excerpt}`
       state.lastOutcome = "unparseable reply"
       return 0
     }
