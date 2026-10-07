@@ -90,3 +90,51 @@ export function matchModel(available: readonly RegistryModel[], selector: string
   }
   return { model: { providerID: match.providerID, id: match.id, variant: parsed.variant } }
 }
+
+const DEFAULT_LOOKUPS = 2
+const DEFAULT_LOOKUP_DELAY_MS = 150
+
+export interface RefreshOptions {
+  /** Total lookups, including the first. Default 2. */
+  attempts?: number
+  /** Delay between lookups in ms. Default 150. */
+  delayMs?: number
+  /** Injected by tests so they need not wait. */
+  sleep?: (ms: number) => Promise<void>
+  /** Called when a refresh throws; the retry stops and the last lookup stands. */
+  onRefreshError?: (error: unknown) => void
+}
+
+/**
+ * Match a selector, forcing a registry refresh and looking again when the first
+ * lookup misses.
+ *
+ * The location registry is discovered asynchronously, so on a cold server (a
+ * restart or a config reload) a selector naming a custom provider is absent at
+ * first even though it is valid — that is how `bifrost/...` used to fall through
+ * to the location default. Retrying with a refresh separates "not there yet"
+ * from "not there at all" before the caller settles for the default.
+ */
+export async function matchWithRefresh(
+  selector: string,
+  read: () => Promise<readonly RegistryModel[]>,
+  refresh: () => Promise<void>,
+  options: RefreshOptions = {},
+): Promise<{ available: RegistryModel[]; match: ModelMatch }> {
+  const attempts = Math.max(1, options.attempts ?? DEFAULT_LOOKUPS)
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resume) => setTimeout(resume, ms)))
+  let available = [...(await read())]
+  let match = matchModel(available, selector)
+  for (let attempt = 1; !match.model && attempt < attempts; attempt += 1) {
+    try {
+      await refresh()
+    } catch (error) {
+      options.onRefreshError?.(error)
+      break
+    }
+    await sleep(options.delayMs ?? DEFAULT_LOOKUP_DELAY_MS)
+    available = [...(await read())]
+    match = matchModel(available, selector)
+  }
+  return { available, match }
+}

@@ -19,7 +19,7 @@ import { activeClaimCount, isClaimOwner, releaseClaim, writeClaim } from "./clai
 import { AdvisorEngine, type AdvisorEvent, type EngineHost, type ModelRef, type NotifyInput, type PersistedCounters } from "./engine.ts"
 import { stamp } from "./format.ts"
 import { instanceClosed, instanceOpened } from "./instances.ts"
-import { matchModel, type RegistryModel } from "./model.ts"
+import { matchModel, matchWithRefresh, type RegistryModel } from "./model.ts"
 import { ADVISOR_TOOL_DESCRIPTION } from "./prompts.ts"
 import type { SessionMessage } from "./transcript.ts"
 
@@ -152,26 +152,44 @@ export default Plugin.define({
         // selector that is not there cannot be used. Matching is case-insensitive
         // and canonicalises to the registry's own spelling, because pickers show
         // display names ("GLM-5.3-Flash") while ids are often lowercase.
-        try {
+        const lookup = async (): Promise<RegistryModel[]> => {
           const list = await ctx.model.list()
-          const available = (list?.data ?? []) as RegistryModel[]
-          const withDefault = async (warning?: string): Promise<ModelRef | undefined> => {
-            const model = (await ctx.model.default())?.data
-            if (!model) return undefined
-            const reachable = available.some(
-              (m) => m.providerID === model.providerID && (m.id === model.id || m.modelID === model.id),
+          return (list?.data ?? []) as RegistryModel[]
+        }
+        const withDefault = async (available: RegistryModel[], warning?: string): Promise<ModelRef | undefined> => {
+          const model = (await ctx.model.default())?.data
+          if (!model) return undefined
+          const reachable = available.some(
+            (m) => m.providerID === model.providerID && (m.id === model.id || m.modelID === model.id),
+          )
+          const notes = [
+            warning,
+            reachable ? undefined : `the location default "${model.providerID}/${model.id}" is not in this location's registry either`,
+          ].filter((note): note is string => note !== undefined)
+          return { providerID: model.providerID, id: model.id, warning: notes.length > 0 ? notes.join("; ") : undefined }
+        }
+
+        try {
+          if (!selector) return await withDefault(await lookup())
+          // The location registry is discovered asynchronously, so a valid
+          // selector can miss on a cold server. matchWithRefresh forces a
+          // refresh and looks again before we settle for the default.
+          const { available, match } = await matchWithRefresh(selector, lookup, () => ctx.model.reload(), {
+            onRefreshError: (err) => console.warn(`[advisor] model registry refresh failed: ${(err as Error).message}`),
+          })
+          if (match.model) return match.model
+          if (match.warning) {
+            // Record what the registry looked like when the selector missed: an
+            // empty or catalog-only list means discovery had not finished, a
+            // fully populated one means the selector is genuinely wrong. Either
+            // way the next occurrence is diagnosable from the log alone.
+            const providers = [...new Set(available.map((m) => m.providerID))].sort()
+            console.warn(
+              `[advisor] ${match.warning}; using the default model instead ` +
+                `(registry at fallback: ${available.length} models from ${providers.join(", ") || "none"})`,
             )
-            const notes = [
-              warning,
-              reachable ? undefined : `the location default "${model.providerID}/${model.id}" is not in this location's registry either`,
-            ].filter((note): note is string => note !== undefined)
-            return { providerID: model.providerID, id: model.id, warning: notes.length > 0 ? notes.join("; ") : undefined }
           }
-          if (!selector) return await withDefault()
-          const { model, warning } = matchModel(available, selector)
-          if (model) return model
-          if (warning) console.warn(`[advisor] ${warning}; using the default model instead`)
-          return await withDefault(warning)
+          return await withDefault(available, match.warning)
         } catch (err) {
           console.warn(`[advisor] model resolution failed: ${(err as Error).message}`)
           return undefined
