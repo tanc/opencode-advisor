@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test"
 import type { AdvisorConfig } from "../plugin/config.ts"
 import { AdvisorEngine, type EngineHost, type InjectInput, type ModelRef, type NotifyInput, type PersistedCounters } from "../plugin/engine.ts"
 import type { SessionMessage } from "../plugin/transcript.ts"
+import { mkdtempSync } from "node:fs"
+import * as engineOs from "node:os"
+import * as enginePath from "node:path"
+import { readFileSync } from "node:fs"
+
+const notesBase = mkdtempSync(enginePath.join(engineOs.tmpdir(), "advisor-engine-notes-"))
 
 function makeConfig(over: Partial<AdvisorConfig> = {}): AdvisorConfig {
   return {
@@ -46,6 +52,7 @@ function makeHost(directory: string, messages: SessionMessage[]): FakeHost {
     responses: [],
     listCalls: 0,
     persisted: [],
+    notesBase,
     logs: [],
     contextCalls: 0,
     async refreshContext() {
@@ -944,6 +951,26 @@ describe("AdvisorEngine", () => {
 
     expect(host.injections[0]!.delivery).toBe("steer")
     expect(host.injections[0]!.text).toContain("If you have already written a final answer")
+    engine.dispose()
+  })
+
+  test("a delivered note lands in the notes bridge for the panel", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[{"severity":"concern","note":"The port is wrong"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    await engine.review("s1", false)
+
+    const st = engine.status("s1")
+    console.log("[bridge] injections:", host.injections.length, "| reviews:", st.reviews, "| outcome:", st.lastOutcome, "| err:", st.lastError)
+    const { notesFilePath } = await import("../plugin/notes-file.ts")
+    const lines = readFileSync(notesFilePath(notesBase, "/repo"), "utf8").trim().split("\n")
+    const parsed = JSON.parse(lines.at(-1)!)
+    expect(parsed.sessionID).toBe("s1")
+    expect(parsed.advisor).toBe("Advisor")
+    expect(parsed.severity).toBe("concern")
+    expect(parsed.note).toBe("The port is wrong")
+    expect(typeof parsed.t).toBe("number")
     engine.dispose()
   })
 

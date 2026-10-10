@@ -23,6 +23,7 @@ import { buildAdvicePrompt, buildReviewPrompt, buildSystemPrompt, formatAdvisory
 import type { AdvisorConfig, AdvisorSpec } from "./config.ts"
 import { DEFAULT_TOOLS } from "./config.ts"
 import { renderDelta, type SessionMessage } from "./transcript.ts"
+import { appendNote, NOTES_BASE } from "./notes-file.ts"
 import { liveInstances } from "./instances.ts"
 import { runTool } from "./tools.ts"
 import { parseSelector, type ModelRef } from "./model.ts"
@@ -47,6 +48,8 @@ export interface InjectInput {
 /** Everything the engine needs from the OpenCode plugin context. */
 export interface EngineHost {
   directory: string
+  /** Where delivered notes are appended for the OpenChamber panel. */
+  notesBase?: string
   /** Identifies this plugin instance in status output and injected metadata. */
   instance?: string
   listMessages(sessionID: string): Promise<SessionMessage[]>
@@ -762,7 +765,21 @@ export class AdvisorEngine {
           return
         }
       }
-      if (id) state.notesDelivered += group.length
+      if (id) {
+        state.notesDelivered += group.length
+        // Bridge to the OpenChamber panel: one JSONL line per delivered note,
+        // keyed by the project directory like the claims. Fail-open inside.
+        for (const entry of group) {
+          appendNote(this.#host.notesBase ?? NOTES_BASE, this.#host.directory, {
+            t: Date.now(),
+            sessionID,
+            advisor: advisor.name,
+            severity: entry.severity ?? "nit",
+            note: entry.note,
+            instance: this.#host.instance,
+          })
+        }
+      }
       for (const note of group) guard.markRouted(note.note)
       if (channel === "steer" && delivery === "steer" && id) steered = true
     }
