@@ -22,17 +22,18 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/guard.ts` | `EmissionGuard` (noise, duplicates, per-update budget) and `resolveChannel` (delivery routing) |
 | `plugin/claims.ts` | file-based review ownership across processes |
 | `plugin/context-line.ts` | the one standing line pushed into the agent's system prompt |
+| `plugin/notes-file.ts` | the notes bridge: delivered notes → `~/.cache/opencode-advisor/notes/*.jsonl` for the OpenChamber panel |
 | `plugin/model.ts` | reviewer model selection: selector parsing and registry matching |
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `scripts/mutate.ts` | mutation check: deliberate changes must be caught by the suite |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 153 tests, no network and no real model |
+| `test/*.test.ts` | 160 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 153 tests
+bun test              # 160 tests
 bun run mutate       # 7 deliberate changes must each be caught by the suite
 bunx tsc --noEmit     # both must be green before any commit
 ```
@@ -48,9 +49,12 @@ bunx tsc --noEmit     # both must be green before any commit
   tools, so the plugin runs the inspection loop itself: the reviewer replies with
   `{"tool":"read"|"grep"|"glob",...}` and the plugin appends `<tool-result>` blocks,
   up to `maxToolRounds` (3) per review, one model call each.
-- **Advice has two channels.** Pushed reviews raise notes; the `advisor` tool lets the
-  agent ask. A tool result renders in OpenChamber's timeline, so the pull channel is
-  the only visible one. Pull answers are tombstoned and their tool results are kept
+- **Advice has three surfaces.** Pushed reviews raise notes; the `advisor` tool lets
+  the agent ask (its result renders in the timeline); and every delivered note is
+  appended to `~/.cache/opencode-advisor/notes/<claimKey(directory)>.jsonl`
+  (`plugin/notes-file.ts`, fail-open), which the companion OpenChamber extension
+  (`openchamber-advisor`) renders in a rail panel — the only rendered surface for
+  pushed notes. Pull answers are tombstoned and their tool results are kept
   out of the review delta, so neither channel re-litigates the other. The tool is
   registered `pinned`, though that option's effect is unverified (the schema types it
   only alongside `codemode` and the checkout has no consumer): the plugin cannot inject
