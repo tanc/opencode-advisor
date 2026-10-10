@@ -175,6 +175,14 @@ bunx tsc --noEmit     # both must be green before any commit
   10 per 10 s; away-only unless `showWhenFocused` is set.
 - The OpenCode server needs auth: HTTP Basic `opencode:$OPENCODE_SERVER_PASSWORD`.
   `opencode api` does **not** stream SSE — use `curl -N` for event capture.
+- **The reviewer's `ctx.generate.text` call bypasses the session hooks** — verified live:
+  with `model.request`/`http.response` probes registered and demonstrably firing (8+
+  `kind=primary` pairs), a review completed (the engine's `Reviews` counter is the
+  marker at the generate call site) and produced **zero** `kind=generate` dispatches.
+  So a per-call header override for reviewer calls is impossible through the hook
+  surface; the way to tag advisor traffic (e.g. a distinct router virtual key) is a
+  dedicated provider entry in the host config, pointed at by the advisor's `model`
+  option. The generate response is `{text}` only — the plugin can never read usage.
 - Agents carry `mode` (`primary` / `subagent` / `all`) and `hidden`; companion plugins
   add hidden primary agents that run background sessions (Magic Context's `historian`
   and `dreamer-*`, which alone accounted for ~18 of the 40 most recent sessions on this
@@ -258,3 +266,12 @@ OpenChamber still lists as a project — a dangling path makes `GET /api/config`
 - The OpenChamber checkout is the user's, not this repo's. Read it to understand
   behaviour; change it only when asked.
 - Commit in small, described steps; keep `bun test` and `bunx tsc --noEmit` green.
+- **Instance hygiene: any `opencode` CLI command (`api`, `run`) starts a background
+  service on demand and restarts one that is down.** After working on the plugin or
+  testing against sessions, check `ps -eo pid,cmd | grep "opencode serve"` and close
+  anything the work started (`opencode service stop`) — but verify with `ps`, not by
+  running another CLI command, and expect the next CLI call to spawn a new one. One
+  OpenChamber app = one OpenCode server; two servers load the plugin twice (see the
+  claims bullet above) and split every per-instance counter.
+- **Code lookups go through the indexed `grep` tool**, not `grep`/`rg`/python scans in
+  bash; bash greps are reserved for non-code artifacts (fetched documents, logs).
