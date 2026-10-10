@@ -21,6 +21,7 @@ import { AdvisorEngine, type AdvisorEvent, type EngineHost, type ModelRef, type 
 import { stamp } from "./format.ts"
 import { instanceClosed, instanceOpened } from "./instances.ts"
 import { matchModel, matchWithRefresh, type RegistryModel } from "./model.ts"
+import { NOTES_BASE, writeStatus } from "./notes-file.ts"
 import { ADVISOR_TOOL_DESCRIPTION } from "./prompts.ts"
 import type { SessionMessage } from "./transcript.ts"
 
@@ -392,6 +393,9 @@ export default Plugin.define({
           // plugin→user surface OpenChamber does show — because the card itself
           // never renders in the timeline.
           await engine.reply(sessionID, body)
+          // Publish the card to the OpenChamber panel (pinned at the top);
+          // the notification above is the fallback when no panel is installed.
+          writeStatus(NOTES_BASE, { t: Date.now(), sessionID, directory, body, instance: instance })
           if (!isDump || body.length < 1200) {
             await postNotification({
               title: isDump ? "Advisor advice" : "Advisor status",

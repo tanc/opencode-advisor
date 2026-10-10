@@ -14,7 +14,7 @@
  * no lookup. Appends fail open: a broken notes directory must never break note
  * delivery. The file is pruned to its last NOTES_FILE_MAX_LINES lines on write.
  */
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { claimKey } from "./claims.ts"
@@ -75,5 +75,39 @@ export function clearNotes(base: string): void {
     rmSync(notesDir(base), { recursive: true, force: true })
   } catch {
     // ignore
+  }
+}
+
+export function statusFilePath(base: string, directory: string): string {
+  return join(join(base, "status"), `${claimKey(directory)}.json`)
+}
+
+export interface StatusEntry {
+  /** When the card was generated (epoch ms). */
+  t: number
+  sessionID: string
+  directory: string
+  body: string
+  instance?: string
+}
+
+/**
+ * Publish the latest command reply (e.g. /advisor status) as one JSON file the
+ * OpenChamber panel renders as a pinned card. Overwritten per directory — it is
+ * a "latest state" card, not a log. Fail-open, like the notes bridge.
+ */
+export function writeStatus(base: string, entry: StatusEntry): void {
+  try {
+    const dir = join(base, "status")
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, `${claimKey(entry.directory)}.json`)
+    const tmp = `${path}.${process.pid}.tmp`
+    writeFileSync(tmp, JSON.stringify(entry))
+    // Rename is atomic on POSIX: the panel never sees a torn JSON file.
+    rmSync(path, { force: true })
+    renameSync(tmp, path)
+  } catch {
+    // A status file the panel cannot read is a panel without the card — never
+    // a reason to break the command.
   }
 }

@@ -166,7 +166,11 @@ bunx tsc --noEmit     # both must be green before any commit
   providers' presence in that registry is **not guaranteed**: observed present
   (2026-10-05; 2026-10-10 morning) and absent (same machine, hours later — registry
   reduced to built-ins, correlated with the ~4 h online-catalog refresh failing on a
-  transport error). `plugin/model.ts` matches case-insensitively on `id`/`modelID` and
+  transport error). The flap is **not advisor-specific**: primary sessions hit the same
+  gap — `SessionRunnerModel.resolve` drains with `Model unavailable: bifrost/…` (seen
+  2026-10-05 to 10-10 for `deepseek_4_1_flash_bf` and `glm_5_3_flash_bf`), with no
+  fallback and only a timeline error. `plugin/model.ts` matches case-insensitively on
+  `id`/`modelID` and
   returns the registry's canonical spelling, so a display-name-shaped selector
   (`GLM-5.3-Flash` for id `glm-5.3-flash`) still resolves — when the provider is
   registered at all. The fallback to `ctx.model.default()` with a `modelWarning` is

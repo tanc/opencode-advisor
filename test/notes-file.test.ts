@@ -78,3 +78,28 @@ describe("appendNote", () => {
 afterAll(async () => {
   await rm(base, { recursive: true, force: true })
 })
+
+import { writeStatus, statusFilePath } from "../plugin/notes-file.ts"
+
+describe("writeStatus", () => {
+  test("writes the latest card per directory, atomically replacing the old one", () => {
+    writeStatus(base, { t: 1, sessionID: "s1", directory, body: "first" })
+    writeStatus(base, { t: 2, sessionID: "s1", directory, body: "second" })
+    const raw = readFileSync(statusFilePath(base, directory), "utf8")
+    const parsed = JSON.parse(raw)
+    expect(parsed.body).toBe("second")
+    expect(parsed.directory).toBe(directory)
+    // No temp files left behind.
+    expect(existsSync(`${statusFilePath(base, directory)}.${process.pid}.tmp`)).toBe(false)
+  })
+
+  test("per-directory keys do not collide", () => {
+    writeStatus(base, { t: 3, sessionID: "s2", directory: "/other/project", body: "other" })
+    expect(JSON.parse(readFileSync(statusFilePath(base, "/some/project"), "utf8")).body).toBe("second")
+    expect(JSON.parse(readFileSync(statusFilePath(base, "/other/project"), "utf8")).body).toBe("other")
+  })
+
+  test("fails open on an unwritable base", () => {
+    expect(() => writeStatus(base + "-file", { t: 4, sessionID: "s1", directory, body: "x" })).not.toThrow()
+  })
+})
