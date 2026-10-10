@@ -162,11 +162,15 @@ bunx tsc --noEmit     # both must be green before any commit
 
 - `ctx.generate.text` takes **`{ prompt, model }` only** — no `system` field, no cache
   controls — and resolves models **solely from `ctx.model.list()`**, matched against
-  the registry's exact ids and case-sensitively at the platform level. Custom
-  providers defined only in `opencode.json` (e.g. `bifrost`) are absent from that
-  registry. `plugin/model.ts` matches case-insensitively on `id`/`modelID` and
+  the registry's exact ids and case-sensitively at the platform level. Config-defined
+  providers' presence in that registry is **not guaranteed**: observed present
+  (2026-10-05; 2026-10-10 morning) and absent (same machine, hours later — registry
+  reduced to built-ins, correlated with the ~4 h online-catalog refresh failing on a
+  transport error). `plugin/model.ts` matches case-insensitively on `id`/`modelID` and
   returns the registry's canonical spelling, so a display-name-shaped selector
-  (`GLM-5.3-Flash` for id `glm-5.3-flash`) still resolves.
+  (`GLM-5.3-Flash` for id `glm-5.3-flash`) still resolves — when the provider is
+  registered at all. The fallback to `ctx.model.default()` with a `modelWarning` is
+  the safety net: reviews continue, unmetered.
 - **Plugin commands return `void`.** There is no output channel, so `/advisor` replies
   via `ctx.session.synthetic`.
 - **OpenChamber renders only `user`, `assistant`, and the notices `compaction` / `shell`.**
