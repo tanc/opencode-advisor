@@ -269,9 +269,13 @@ OpenChamber still lists as a project — a dangling path makes `GET /api/config`
 - **Instance hygiene: any `opencode` CLI command (`api`, `run`) starts a background
   service on demand and restarts one that is down.** After working on the plugin or
   testing against sessions, check `ps -eo pid,cmd | grep "opencode serve"` and close
-  anything the work started (`opencode service stop`) — but verify with `ps`, not by
-  running another CLI command, and expect the next CLI call to spawn a new one. One
-  OpenChamber app = one OpenCode server; two servers load the plugin twice (see the
-  claims bullet above) and split every per-instance counter.
+  what the work started — which is always the CLI-spawned service
+  (`~/.opencode/bin/opencode serve --service`, what `opencode service stop` targets).
+  **Never close the OpenChamber-managed server** (`opencode serve --hostname
+  127.0.0.1 --port <port>`, credential file in `~/.config/openchamber/managed-opencode/`)
+  or the OpenChamber app itself — that is the user's running session host. Verify with
+  `ps`, not by running another CLI command, and expect the next CLI call to spawn a
+  new service. One OpenChamber app = one OpenCode server; two servers load the plugin
+  twice (see the claims bullet above) and split every per-instance counter.
 - **Code lookups go through the indexed `grep` tool**, not `grep`/`rg`/python scans in
   bash; bash greps are reserved for non-code artifacts (fetched documents, logs).
