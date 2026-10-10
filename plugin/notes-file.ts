@@ -103,8 +103,8 @@ export function writeStatus(base: string, entry: StatusEntry): void {
     const path = join(dir, `${claimKey(entry.directory)}.json`)
     const tmp = `${path}.${process.pid}.tmp`
     writeFileSync(tmp, JSON.stringify(entry))
-    // Rename is atomic on POSIX: the panel never sees a torn JSON file.
-    rmSync(path, { force: true })
+    // Rename is atomic on POSIX and replaces the destination outright — no
+    // unlink first, which would open a window where the panel sees no file.
     renameSync(tmp, path)
   } catch {
     // A status file the panel cannot read is a panel without the card — never
