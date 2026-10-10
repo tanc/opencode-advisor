@@ -757,12 +757,13 @@ export class AdvisorEngine {
       const delivery: "steer" | "queue" = channel === "steer" ? "steer" : "queue"
       // Only a steering note may wake an idle agent. A queued note rides the
       // running turn (streaming) or waits; a preserve note is a visible card.
-      // The hint rides only a steered note on an already-answered turn. A queued
-      // or preserved note is read next turn, where the reader has the answer —
-      // and the text is built per attempt, so a steer that falls back to queue
-      // loses the hint with the delivery it actually gets.
+      // The hint rides any note raised on a turn whose tail was a terminal
+      // answer, whatever the channel: observed in practice, a queued nit landed
+      // 33 s after the answer and was acted on within the same turn — "queued
+      // means read next turn" was true of the delivery mechanism, not of the
+      // agent's behaviour.
       const send = (to: "steer" | "queue") => {
-        const text = formatAdvisoryBatch(group, advisor.name, to === "steer" && tailFinal)
+        const text = formatAdvisoryBatch(group, advisor.name, tailFinal)
         return this.#host.inject({
           sessionID,
           text,

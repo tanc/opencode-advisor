@@ -16,8 +16,11 @@
  *   variable here would rewrite the provider's cached prefix on every step of a
  *   turn. The line is therefore constant, byte for byte.
  * - Several instances share one draft — six registrations were observed inside a
- *   single 100 ms window — so only the reviewing claim's owner registers the hook,
- *   and the line is injected at most once per request.
+ *   single 100 ms window — so the hook is registered by every instance and the
+ *   line is injected at most once per request: per-draft idempotence, not a claim
+ *   gate. The claim arbitrates reviewing, not prompt-building, and the process
+ *   that serves a session's prompts need not be the one that reviews it — gating
+ *   on ownership left the line absent exactly where it mattered.
  */
 
 export const STANDING_PREFIX = "[advisor]"
@@ -46,12 +49,8 @@ export function injectStandingLine(system: unknown): boolean {
 }
 
 export interface ContextLineDeps {
-  /** Whether this instance owns reviewing for its directory. */
-  isOwner: () => boolean
   /** Whether the advisor is on for a session; off leaves its prompt untouched. */
   isActive: (sessionID: string) => boolean
-  /** How long an ownership verdict is reused. */
-  ownerTtlMs?: number
   onError?: (error: Error) => void
 }
 
@@ -68,17 +67,8 @@ export type ContextLineHook = (draft: ContextLineDraft) => void
  * line instead of stepping aside.
  */
 export function createContextLineHook(deps: ContextLineDeps): ContextLineHook {
-  const ttl = deps.ownerTtlMs ?? 15_000
-  let checkedAt = 0
-  let owner = false
   return (draft) => {
     try {
-      const now = Date.now()
-      if (now - checkedAt >= ttl) {
-        checkedAt = now
-        owner = deps.isOwner()
-      }
-      if (!owner) return
       if (!draft.sessionID) return
       if (!deps.isActive(draft.sessionID)) return
       injectStandingLine(draft.system)

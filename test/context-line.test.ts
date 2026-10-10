@@ -36,55 +36,39 @@ describe("injectStandingLine", () => {
 describe("createContextLineHook", () => {
   const draft = () => ({ sessionID: "s1", system: [] as { type?: string; text?: string }[] })
 
-  test("injects for an owner on an active session", () => {
-    const hook = createContextLineHook({ isOwner: () => true, isActive: () => true })
+  test("injects on an active session", () => {
+    const hook = createContextLineHook({ isActive: () => true })
     const d = draft()
     hook(d)
     expect(d.system).toHaveLength(1)
   })
 
   test("stays out when the advisor is off for the session", () => {
-    const hook = createContextLineHook({ isOwner: () => true, isActive: () => false })
+    const hook = createContextLineHook({ isActive: () => false })
     const d = draft()
     hook(d)
     expect(d.system).toHaveLength(0)
   })
 
-  test("stays out when another instance owns reviewing", () => {
-    const hook = createContextLineHook({ isOwner: () => false, isActive: () => true })
+  test("every instance may register: two hooks, one draft, still one line", () => {
+    const hook = createContextLineHook({ isActive: () => true })
     const d = draft()
     hook(d)
-    expect(d.system).toHaveLength(0)
-  })
-
-  test("re-reads ownership on the TTL, so a moved claim stops injecting", () => {
-    let owner = true
-    const hook = createContextLineHook({
-      isOwner: () => owner,
-      isActive: () => true,
-      ownerTtlMs: 0,
-    })
-    const first = draft()
-    hook(first)
-    expect(first.system).toHaveLength(1)
-    owner = false
-    const second = draft()
-    hook(second)
-    expect(second.system).toHaveLength(0)
+    hook(d)
+    expect(d.system).toHaveLength(1)
   })
 
   test("a throwing dependency is reported rather than thrown into the host", () => {
     const errors: Error[] = []
     const hook = createContextLineHook({
-      isOwner: () => {
-        throw new Error("claim file is gone")
+      isActive: () => {
+        throw new Error("state is unreadable")
       },
-      isActive: () => true,
       onError: (err) => errors.push(err),
     })
     const d = draft()
     expect(() => hook(d)).not.toThrow()
     expect(d.system).toHaveLength(0)
-    expect(errors[0]!.message).toBe("claim file is gone")
+    expect(errors[0]!.message).toBe("state is unreadable")
   })
 })

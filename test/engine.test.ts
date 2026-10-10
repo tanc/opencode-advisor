@@ -960,7 +960,7 @@ describe("AdvisorEngine", () => {
     engine.dispose()
   })
 
-  test("a note preserved for a settled turn does not ask for a restatement", async () => {
+  test("a preserved note on a settled turn also asks for a restatement", async () => {
     const host = makeHost("/repo", [user, terminal])
     host.responses.push('{"notes":[{"severity":"concern","note":"The port is wrong"}]}')
     const engine = new AdvisorEngine(makeConfig(), host)
@@ -968,11 +968,11 @@ describe("AdvisorEngine", () => {
     await engine.review("s1", false)
 
     expect(host.injections[0]!.resume).toBe(false)
-    expect(host.injections[0]!.text).not.toContain("advisory-closeout")
+    expect(host.injections[0]!.text).toContain("advisory-closeout")
     engine.dispose()
   })
 
-  test("a failed steer injection falls back to queue and drops the close-out hint", async () => {
+  test("a failed steer injection falls back to queue and keeps the close-out hint", async () => {
     const host = makeHost("/repo", [user, terminal])
     host.responses.push('{"notes":[{"severity":"concern","note":"The port is wrong"}]}')
     host.injectFailures = 1
@@ -983,7 +983,7 @@ describe("AdvisorEngine", () => {
     expect(host.injections).toHaveLength(1)
     expect(host.injections[0]!.delivery).toBe("queue")
     expect(host.injections[0]!.resume).toBe(false)
-    expect(host.injections[0]!.text).not.toContain("advisory-closeout")
+    expect(host.injections[0]!.text).toContain("advisory-closeout")
     expect(host.logs.some((l) => l.includes("retrying queued"))).toBe(true)
     engine.dispose()
   })

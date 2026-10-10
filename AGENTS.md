@@ -129,19 +129,26 @@ bunx tsc --noEmit     # both must be green before any commit
     block that session's review queue for minutes; it now fails and is reported.
     The notice names the attempt count and the first error, so "upstream service
     timeout" is decodable without knowing which build produced it.
-16. **Advice that arrives after the answer asks for a restatement.** A note steered
-    into a turn whose tail was a terminal answer carries an `advisory-closeout` line,
+16. **Advice that arrives after the answer asks for a restatement.** Any note raised
+    on a turn whose tail was a terminal answer carries an `advisory-closeout` line,
     so the agent ends with a complete restatement rather than leaving the answer
-    buried above the exchange. A queued or preserved note does not: it is read at the
-    next turn boundary, where the reader has the answer already — and the standing
-    context line (invariant 17) instructs the restatement for any note after a final
-    answer, whichever channel it arrives by. That is why no per-note "what to do
-    next" copy was added: it would repeat the line on every note.
+    buried above the exchange, whatever the delivery channel. The channel gate was
+    removed after the household session falsified its premise: queued nits landed
+    33 s after the answer and were acted on within the same turn — "queued means
+    read next turn" described the delivery mechanism, not the agent's behaviour.
+    The standing context line (invariant 17) instructs the restatement for any note
+    after a final answer too; no per-note "what to do next" copy exists, or it would
+    repeat that line on every note.
 17. **The prompt-time line is constant and single.** `plugin/context-line.ts` pushes
-    one byte-identical line per request, only on a session whose advisor is on, and
-    only from the reviewing claim's owner. Three properties force that shape: the
+    one byte-identical line per request, only on a session whose advisor is on, from
+    every instance that loads the plugin. Three properties force that shape: the
     callback runs once per provider request, several instances share one draft, and a
-    varying system block rewrites the provider's cached prefix every step.
+    varying system block rewrites the provider's cached prefix every step. Claim
+    ownership is deliberately **not** consulted: it arbitrates reviewing, not
+    prompt-building, and the process that serves a session's prompts need not be the
+    one that reviews it — the ownership gate left the line absent exactly where it
+    mattered, which the household session then demonstrated end to end (no
+    restatement after two queued nits).
 
 ## Platform constraints (learned the hard way)
 

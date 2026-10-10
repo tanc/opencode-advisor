@@ -227,17 +227,18 @@ export default Plugin.define({
     // reviewing the same sessions with its own state.
     writeClaim({ directory, instance })
     // The prompt-time channel: one constant line in the agent's system prompt,
-    // registered only by the reviewing claim's owner. Measured on this host — the
-    // hook dispatches for an external plugin, is not awaited, and a synchronous
-    // push reaches the provider request — but the callback runs per provider
-    // request, so the line has to stay byte-identical to leave the prompt cache
-    // alone, and only one instance may add it.
+    // registered by every instance. Measured on this host — the hook dispatches
+    // for an external plugin, is not awaited, and a synchronous push reaches the
+    // provider request — but the callback runs per provider request, so the line
+    // has to stay byte-identical to leave the prompt cache alone; per-draft
+    // idempotence keeps it to one copy even with several live instances, and
+    // claim ownership is deliberately not consulted, because the process that
+    // serves a session's prompts need not be the one that reviews it.
     if (config.contextLine) {
       try {
         await ctx.session.hook(
           "context",
           createContextLineHook({
-            isOwner: () => isClaimOwner({ directory, instance }),
             isActive: (sessionID) => engine.advisoriesActive(sessionID),
             onError: (err) => console.warn(`[advisor] context line failed: ${err.message}`),
           }) as never,

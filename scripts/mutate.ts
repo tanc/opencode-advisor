@@ -40,10 +40,10 @@ const MUTATIONS: Mutation[] = [
     replace: "this.#host.persistCounters?.(sessionID, this.#countersOf(state))",
   },
   {
-    name: "close-out hint rides every steered note (tail gate removed)",
+    name: "close-out hint rides every note (tail gate removed)",
     file: "plugin/engine.ts",
-    find: 'to === "steer" && tailFinal',
-    replace: 'to === "steer"',
+    find: "formatAdvisoryBatch(group, advisor.name, tailFinal)",
+    replace: "formatAdvisoryBatch(group, advisor.name, false)",
   },
   {
     name: "a note may resume an idle session (never-resume broken)",
