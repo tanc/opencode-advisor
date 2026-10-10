@@ -137,8 +137,12 @@ bunx tsc --noEmit     # both must be green before any commit
     hours earlier, and another raised 80 s before the answer it followed — so two
     earlier gates (steered-notes-only, then raise-time `tailIsTerminalAnswer`)
     were both removed: each excluded a case the transcript then showed landing
-    after an answer. Mid-turn the condition is false and the line is inert; the
-    standing context line (invariant 17) says the same thing at prompt time.
+    after an answer. Evaluating the condition in the engine at delivery time is
+    not a third option: the engine's last moment is the inject POST, and both
+    observed notes were already unknowable there — one injected 14 h before its
+    answer existed, one 80 s before. Only the agent at read time knows, so the
+    condition lives in the wording. Mid-turn it is false and the line is inert;
+    the standing context line (invariant 17) says the same thing at prompt time.
 17. **The prompt-time line is constant and single.** `plugin/context-line.ts` pushes
     one byte-identical line per request, only on a session whose advisor is on, from
     every instance that loads the plugin. Three properties force that shape: the
