@@ -163,10 +163,14 @@ bunx tsc --noEmit     # both must be green before any commit
 - `ctx.generate.text` takes **`{ prompt, model }` only** — no `system` field, no cache
   controls — and resolves models **solely from `ctx.model.list()`**, matched against
   the registry's exact ids and case-sensitively at the platform level. Config-defined
-  providers' presence in that registry is **not guaranteed**: observed present
-  (2026-10-05; 2026-10-10 morning) and absent (same machine, hours later — registry
-  reduced to built-ins, correlated with the ~4 h online-catalog refresh failing on a
-  transport error). The flap is **not advisor-specific**: primary sessions hit the same
+  providers' presence in that registry is **transient, with two observed deficit
+  shapes**: built-ins only while config providers are missing (the plugin's view,
+  2026-10-10 ~16:10), and a fully empty list at the HTTP boundary (0 providers;
+  a retry ~30 s later returned 9 providers / 777 models, and the plugin resolved
+  `bifrost-advisor` by 16:40). Mechanism undetermined — lazy load, catalog-refresh
+  success, or per-request variance; do not assert one. Correlated, not proven, with
+  the ~4 h online-catalog refresh failing on opencode.ai transport errors. The flap is
+  **not advisor-specific**: primary sessions hit the same
   gap — `SessionRunnerModel.resolve` drains with `Model unavailable: bifrost/…` (seen
   2026-10-05 to 10-10 for `deepseek_4_1_flash_bf` and `glm_5_3_flash_bf`), with no
   fallback and only a timeline error. `plugin/model.ts` matches case-insensitively on
