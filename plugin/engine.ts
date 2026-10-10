@@ -22,7 +22,7 @@ import {
 import { buildAdvicePrompt, buildReviewPrompt, buildSystemPrompt, formatAdvisoryBatch, parseAdvisorReply } from "./prompts.ts"
 import type { AdvisorConfig, AdvisorSpec } from "./config.ts"
 import { DEFAULT_TOOLS } from "./config.ts"
-import { renderDelta, tailIsTerminalAnswer, type SessionMessage } from "./transcript.ts"
+import { renderDelta, type SessionMessage } from "./transcript.ts"
 import { liveInstances } from "./instances.ts"
 import { runTool } from "./tools.ts"
 import { parseSelector, type ModelRef } from "./model.ts"
@@ -545,10 +545,6 @@ export class AdvisorEngine {
       state.reviewedCount = messages.length
       if (!transcript) return
 
-      // Only a note steered into a turn that had already produced an answer needs
-      // the close-out hint; otherwise "restate your final answer" is noise.
-      const tailFinal = tailIsTerminalAnswer(messages)
-
       const advisors = this.#config.advisors.filter((a) => a.enabled)
       if (advisors.length === 0) return
 
@@ -559,7 +555,7 @@ export class AdvisorEngine {
       state.lastError = undefined
       for (const advisor of advisors) {
         if (this.#abort.signal.aborted) return
-        notes += await this.#reviewWith(advisor, sessionID, transcript, streaming, state, tailFinal)
+        notes += await this.#reviewWith(advisor, sessionID, transcript, streaming, state)
       }
       state.reviews += 1
       state.lastNoteCount = notes
@@ -595,7 +591,6 @@ export class AdvisorEngine {
     transcript: string,
     streaming: boolean,
     state: SessionState,
-    tailFinal: boolean,
   ): Promise<number> {
     const model = await this.#host.resolveModel(advisor.model ?? this.#config.model)
     state.lastModelWarning = model?.warning
@@ -674,7 +669,6 @@ export class AdvisorEngine {
           streaming,
           state,
           guard,
-          tailFinal,
         )
         const count = reply.notes.length === 0 ? "no notes" : `${reply.notes.length} notes`
         // Mid-turn the reviewer is instructed to withhold non-blocking critique,
@@ -704,7 +698,6 @@ export class AdvisorEngine {
     streaming: boolean,
     state: SessionState,
     guard: EmissionGuard,
-    tailFinal: boolean,
   ): Promise<number> {
     if (notes.length === 0) return 0
     const immuneActive = isImmuneActive(state, this.#config.immuneTurns)
@@ -757,13 +750,8 @@ export class AdvisorEngine {
       const delivery: "steer" | "queue" = channel === "steer" ? "steer" : "queue"
       // Only a steering note may wake an idle agent. A queued note rides the
       // running turn (streaming) or waits; a preserve note is a visible card.
-      // The hint rides any note raised on a turn whose tail was a terminal
-      // answer, whatever the channel: observed in practice, a queued nit landed
-      // 33 s after the answer and was acted on within the same turn — "queued
-      // means read next turn" was true of the delivery mechanism, not of the
-      // agent's behaviour.
       const send = (to: "steer" | "queue") => {
-        const text = formatAdvisoryBatch(group, advisor.name, tailFinal)
+        const text = formatAdvisoryBatch(group, advisor.name)
         return this.#host.inject({
           sessionID,
           text,

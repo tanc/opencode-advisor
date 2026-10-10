@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { isAdvisorMessage, renderDelta, tailIsTerminalAnswer, type SessionMessage } from "../plugin/transcript.ts"
+import { isAdvisorMessage, renderDelta, type SessionMessage } from "../plugin/transcript.ts"
 
 const user: SessionMessage = { id: "m1", type: "user", text: "do the thing" }
 
@@ -67,18 +67,3 @@ describe("renderDelta", () => {
   })
 })
 
-describe("tailIsTerminalAnswer", () => {
-  test("true when the last assistant message is a text stop", () => {
-    const done: SessionMessage = { id: "d", type: "assistant", finish: "stop", content: [{ type: "text", text: "done" }] }
-    expect(tailIsTerminalAnswer([user, done])).toBe(true)
-  })
-
-  test("false when the assistant is still calling tools", () => {
-    expect(tailIsTerminalAnswer([user, assistant])).toBe(false)
-  })
-
-  test("false when the tail is a trailing user turn", () => {
-    const done: SessionMessage = { id: "d", type: "assistant", finish: "stop", content: [{ type: "text", text: "done" }] }
-    expect(tailIsTerminalAnswer([done, { id: "u2", type: "user", text: "more" }])).toBe(false)
-  })
-})

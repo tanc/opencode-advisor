@@ -114,6 +114,12 @@ describe("formatAdvisoryBatch", () => {
     expect(text).toContain("A &lt; B &amp; C")
     expect(text).toContain('guidance="weigh, don\'t blindly obey"')
   })
+
+  test("every batch carries the conditional close-out hint", () => {
+    const text = formatAdvisoryBatch([{ note: "x", severity: "nit" }], "Advisor")
+    expect(text).toContain("<advisory-closeout>If you have already written a final answer")
+    expect(text.endsWith("</advisory-closeout>")).toBe(true)
+  })
 })
 
 describe("buildAdvicePrompt", () => {

@@ -297,16 +297,22 @@ export function buildAdvicePrompt(input: { advisorName: string; transcript: stri
  * answer, which is the one case where acting on a note buries that answer: the
  * reader has to scroll past the whole exchange to find what was concluded.
  */
+/**
+ * Appended to every delivered advisory. Self-guarding on purpose: raise time
+ * cannot know delivery-time context — the household session delivered a nit
+ * raised 14 hours earlier, and another raised 80 s before the answer it
+ * followed — so the hint must not assert that an answer exists, only instruct
+ * conditionally. Mid-turn the condition is false and the line is inert.
+ */
 export const RESTATE_HINT =
-  '<advisory-closeout>This arrived after you had already written your final answer. Deal with it, then end your reply with a complete restatement of that answer so the latest one stands on its own.</advisory-closeout>'
+  '<advisory-closeout>If you have already written a final answer to the user, deal with this note and then finish with a complete restatement of that answer, so the latest one stands on its own.</advisory-closeout>'
 
-export function formatAdvisoryBatch(notes: Note[], advisorName?: string, closeOut?: boolean): string {
-  const batch = notes
+export function formatAdvisoryBatch(notes: Note[], advisorName?: string): string {
+  return notes
     .map((n) => {
       const severity = n.severity ? ` severity="${n.severity}"` : ""
       const who = advisorName ? ` advisor="${escapeAttr(advisorName)}"` : ""
       return `<advisory${who}${severity} guidance="${ADVISOR_GUIDANCE}">\n${escapeXml(n.note)}\n</advisory>`
     })
-    .join("\n")
-  return closeOut ? batch + "\n" + RESTATE_HINT : batch
+    .join("\n") + "\n" + RESTATE_HINT
 }

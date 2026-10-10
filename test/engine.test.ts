@@ -181,7 +181,8 @@ describe("AdvisorEngine", () => {
     await engine.review("s1", false)
 
     const text = host.injections.flatMap((i) => i.text).join("\n")
-    expect(text.match(/<advisory/g)?.length).toBe(2)
+    // [ >] excludes <advisory-closeout>, which rides the batch but is not a note.
+    expect(text.match(/<advisory[ >]/g)?.length).toBe(2)
     engine.dispose()
   })
 
@@ -948,7 +949,7 @@ describe("AdvisorEngine", () => {
     engine.dispose()
   })
 
-  test("a steered note mid-work does not ask for a restatement", async () => {
+  test("a steered note mid-work carries the conditional hint too", async () => {
     const host = makeHost("/repo", [user, midwork])
     host.responses.push('{"notes":[{"severity":"concern","note":"Check the guard"}]}')
     const engine = new AdvisorEngine(makeConfig(), host)
@@ -956,7 +957,7 @@ describe("AdvisorEngine", () => {
     await engine.review("s1", true)
 
     expect(host.injections[0]!.delivery).toBe("steer")
-    expect(host.injections[0]!.text).not.toContain("advisory-closeout")
+    expect(host.injections[0]!.text).toContain("If you have already written a final answer")
     engine.dispose()
   })
 

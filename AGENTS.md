@@ -27,12 +27,12 @@ and does not dedupe, so the plugin would load twice.
 | `scripts/mutate.ts` | mutation check: deliberate changes must be caught by the suite |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 156 tests, no network and no real model |
+| `test/*.test.ts` | 153 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 156 tests
+bun test              # 153 tests
 bun run mutate       # 7 deliberate changes must each be caught by the suite
 bunx tsc --noEmit     # both must be green before any commit
 ```
@@ -129,16 +129,16 @@ bunx tsc --noEmit     # both must be green before any commit
     block that session's review queue for minutes; it now fails and is reported.
     The notice names the attempt count and the first error, so "upstream service
     timeout" is decodable without knowing which build produced it.
-16. **Advice that arrives after the answer asks for a restatement.** Any note raised
-    on a turn whose tail was a terminal answer carries an `advisory-closeout` line,
-    so the agent ends with a complete restatement rather than leaving the answer
-    buried above the exchange, whatever the delivery channel. The channel gate was
-    removed after the household session falsified its premise: queued nits landed
-    33 s after the answer and were acted on within the same turn — "queued means
-    read next turn" described the delivery mechanism, not the agent's behaviour.
-    The standing context line (invariant 17) instructs the restatement for any note
-    after a final answer too; no per-note "what to do next" copy exists, or it would
-    repeat that line on every note.
+16. **Every advisory carries a conditional restatement hint.** An
+    `advisory-closeout` line rides each delivered note: *if* the agent has already
+    written a final answer, it finishes with a complete restatement so the latest
+    one stands on its own. The wording is conditional because raise time cannot
+    know delivery-time context — the household session delivered a nit raised 14
+    hours earlier, and another raised 80 s before the answer it followed — so two
+    earlier gates (steered-notes-only, then raise-time `tailIsTerminalAnswer`)
+    were both removed: each excluded a case the transcript then showed landing
+    after an answer. Mid-turn the condition is false and the line is inert; the
+    standing context line (invariant 17) says the same thing at prompt time.
 17. **The prompt-time line is constant and single.** `plugin/context-line.ts` pushes
     one byte-identical line per request, only on a session whose advisor is on, from
     every instance that loads the plugin. Three properties force that shape: the

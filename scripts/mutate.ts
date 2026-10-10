@@ -40,10 +40,10 @@ const MUTATIONS: Mutation[] = [
     replace: "this.#host.persistCounters?.(sessionID, this.#countersOf(state))",
   },
   {
-    name: "close-out hint rides every note (tail gate removed)",
-    file: "plugin/engine.ts",
-    find: "formatAdvisoryBatch(group, advisor.name, tailFinal)",
-    replace: "formatAdvisoryBatch(group, advisor.name, false)",
+    name: "close-out hint dropped from every note",
+    file: "plugin/prompts.ts",
+    find: '    .join("\\n") + "\\n" + RESTATE_HINT',
+    replace: '    .join("\\n")',
   },
   {
     name: "a note may resume an idle session (never-resume broken)",

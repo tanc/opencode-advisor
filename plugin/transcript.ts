@@ -144,12 +144,3 @@ export function renderDelta(messages: readonly SessionMessage[], options: Render
   const wip = options.wip ? `\n\n---\n\n[in progress — more steps follow]` : ""
   return `${heading}\n\n${body}${wip}`
 }
-
-/** Best-effort terminal-answer detection over a session's message list. */
-export function tailIsTerminalAnswer(messages: readonly SessionMessage[]): boolean {
-  const last = messages[messages.length - 1]
-  if (!last || last.type !== "assistant") return false
-  if (last.finish !== "stop") return false
-  const tail = (last.content ?? []).filter((p) => p.type === "text" || p.type === "tool").at(-1)
-  return tail?.type === "text"
-}
