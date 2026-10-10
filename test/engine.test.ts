@@ -13,6 +13,7 @@ function makeConfig(over: Partial<AdvisorConfig> = {}): AdvisorConfig {
     maxToolRounds: 6,
     maxTranscriptChars: 60_000,
     requestTimeoutMs: 45_000,
+    contextLine: true,
     notify: "off",
     watchdogBlocks: [],
     warnings: [],
@@ -926,6 +927,42 @@ describe("AdvisorEngine", () => {
 
     expect(host.injections[0]!.delivery).toBe("steer")
     expect(host.injections[0]!.resume).toBe(true)
+    engine.dispose()
+  })
+
+  test("a steered note on an already-answered turn asks for a restatement", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[{"severity":"concern","note":"The port is wrong"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    await engine.review("s1", true)
+
+    expect(host.injections[0]!.delivery).toBe("steer")
+    expect(host.injections[0]!.text).toContain("advisory-closeout")
+    engine.dispose()
+  })
+
+  test("a steered note mid-work does not ask for a restatement", async () => {
+    const host = makeHost("/repo", [user, midwork])
+    host.responses.push('{"notes":[{"severity":"concern","note":"Check the guard"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    await engine.review("s1", true)
+
+    expect(host.injections[0]!.delivery).toBe("steer")
+    expect(host.injections[0]!.text).not.toContain("advisory-closeout")
+    engine.dispose()
+  })
+
+  test("a note preserved for a settled turn does not ask for a restatement", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[{"severity":"concern","note":"The port is wrong"}]}')
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    await engine.review("s1", false)
+
+    expect(host.injections[0]!.resume).toBe(false)
+    expect(host.injections[0]!.text).not.toContain("advisory-closeout")
     engine.dispose()
   })
 })

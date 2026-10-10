@@ -292,12 +292,21 @@ export function buildAdvicePrompt(input: { advisorName: string; transcript: stri
 }
 
 /** Render notes as the agent-facing `<advisory>` blocks omp uses. */
-export function formatAdvisoryBatch(notes: Note[], advisorName?: string): string {
-  return notes
+/**
+ * Appended to a steered note when the agent had already written its final
+ * answer, which is the one case where acting on a note buries that answer: the
+ * reader has to scroll past the whole exchange to find what was concluded.
+ */
+export const RESTATE_HINT =
+  '<advisory-closeout>This arrived after you had already written your final answer. Deal with it, then end your reply with a complete restatement of that answer so the latest one stands on its own.</advisory-closeout>'
+
+export function formatAdvisoryBatch(notes: Note[], advisorName?: string, closeOut?: boolean): string {
+  const batch = notes
     .map((n) => {
       const severity = n.severity ? ` severity="${n.severity}"` : ""
       const who = advisorName ? ` advisor="${escapeAttr(advisorName)}"` : ""
       return `<advisory${who}${severity} guidance="${ADVISOR_GUIDANCE}">\n${escapeXml(n.note)}\n</advisory>`
     })
     .join("\n")
+  return closeOut ? batch + "\n" + RESTATE_HINT : batch
 }

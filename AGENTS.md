@@ -21,16 +21,17 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/engine.ts` | observation → review → delivery; session state; routing; backlog |
 | `plugin/guard.ts` | `EmissionGuard` (noise, duplicates, per-update budget) and `resolveChannel` (delivery routing) |
 | `plugin/claims.ts` | file-based review ownership across processes |
+| `plugin/context-line.ts` | the one standing line pushed into the agent's system prompt |
 | `plugin/model.ts` | reviewer model selection: selector parsing and registry matching |
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 137 tests, no network and no real model |
+| `test/*.test.ts` | 154 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 137 tests
+bun test              # 154 tests
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
@@ -118,6 +119,16 @@ bunx tsc --noEmit     # both must be green before any commit
     block that session's review queue for minutes; it now fails and is reported.
     The notice names the attempt count and the first error, so "upstream service
     timeout" is decodable without knowing which build produced it.
+16. **Advice that arrives after the answer asks for a restatement.** A note steered
+    into a turn whose tail was a terminal answer carries an `advisory-closeout` line,
+    so the agent ends with a complete restatement rather than leaving the answer
+    buried above the exchange. A queued or preserved note does not: it is read at the
+    next turn boundary, where the reader has the answer already.
+17. **The prompt-time line is constant and single.** `plugin/context-line.ts` pushes
+    one byte-identical line per request, only on a session whose advisor is on, and
+    only from the reviewing claim's owner. Three properties force that shape: the
+    callback runs once per provider request, several instances share one draft, and a
+    varying system block rewrites the provider's cached prefix every step.
 
 ## Platform constraints (learned the hard way)
 
@@ -152,11 +163,23 @@ bunx tsc --noEmit     # both must be green before any commit
   it cannot see the other.
 - `ctx.session.hook(name, cb)` accepts a plain `async` callback and **does not validate
   the name**: a deliberately bogus name (`definitely-not-a-hook`) loads exactly like a
-  real one, so a typo fails silently rather than loudly. A hook on `"context"` was
-  measured against a live 2.0.19 server (15 s sleep inside the callback, timeout control)
-  and produced no delay — hook callbacks are evidently not awaited on that path. This is
-  why `syncBacklog` was removed: a blocking catch-up hook cannot be shown to work, and
-  the failure mode is a silent no-op.
+  real one, so a typo fails silently rather than loudly.
+- **The `"context"` hook is dispatch-and-forget, and its draft is live.** Measured on
+  the app's bundled server: the callback receives `{sessionID, system[], messages[],
+  options, model, agent, tools}` and runs once per provider request (per step); a 25 s
+  sleep inside it delayed nothing, so the host does not await it; and a synchronous
+  `draft.system.push(...)` **does reach the wire** — a token written to no log and no
+  tool result was found in the outgoing body (835 KB, cloned from
+  `http.request`'s `Request` and read there). Because it is not awaited, anything
+  needing an `await` (storage, session context) arrives after the request is built, so
+  a *blocking* catch-up hook is still impossible — which is why `syncBacklog` stayed
+  removed. The per-step cadence is why the one thing pushed there
+  (`plugin/context-line.ts`) is a constant, byte-identical line, and why only the
+  claim owner registers it.
+- **Probe hygiene, learned twice the hard way.** Log a hash of a secret, never the
+  secret; and read the in-hook "the callback ran" line before reading a negative as a
+  result — a `pushed len=` line was once deleted unread, and a marker already present
+  in the transcript produced a false positive that briefly reversed a conclusion.
 
 ## Prompt and cache facts
 

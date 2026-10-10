@@ -132,6 +132,7 @@ Pass these in the `options` object of the `plugins` entry (or via the
 | `maxTranscriptChars` | `30000`    | Max characters of transcript sent per review (latency tracks this).     |
 | `requestTimeoutMs`   | `90000`    | Deadline per reviewer model call; a fast transient failure is retried once. |
 | `notify`             | `off`      | `off`/`away`/`always`: also raise an OpenChamber notification per note.  |
+| `contextLine`        | `true`     | Push one constant line into the agent's system prompt: advice that lands after a final answer gets a restatement. |
 
 Environment overrides (useful when auto-discovered, since discovery passes no
 options): `ADVISOR_ENABLED`, `ADVISOR_MODEL`, `ADVISOR_INSTRUCTIONS`,
@@ -157,6 +158,22 @@ session** (once per distinct failure) and in `/advisor status`, then falls back
 to the location default. A reviewer that cannot call its model must never be
 indistinguishable from one with nothing to say — silence is a valid outcome,
 failing silently is not.
+
+## Advice that lands after the answer
+
+A review triggered at a step boundary finishes one model call after that step, so
+a note can arrive while the agent is still finishing up — after it has already
+written what looked like its final answer. Acting on the note then leaves the
+answer buried above the rest of the exchange.
+
+Two mechanisms address that, and neither wakes a settled session. A note steered
+into a turn whose tail was a terminal answer carries an `advisory-closeout` line
+asking the agent to finish with a complete restatement; a note that waits for the
+next turn does not, since by then the reader already has the answer. And with
+`contextLine` (default on) one constant line saying the same thing is pushed into
+the agent's system prompt for the whole session — deliberately constant, because
+the hook runs once per provider request and anything variable there would rewrite
+the provider's cached prefix on every step of a turn.
 
 ## Pull advice on demand
 
@@ -424,7 +441,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   plugin cannot set one per call, because the generate API takes `{ prompt, model }`
   only.
 
-137 unit/integration tests cover the emission guard, delivery routing, transcript
+154 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -440,7 +457,7 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 137 unit/integration tests
+bun test        # 154 unit/integration tests
 bunx tsc --noEmit
 ```
 

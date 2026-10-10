@@ -16,6 +16,7 @@
 import { Plugin } from "@opencode/plugin"
 import { ADVISOR_TOOL_NAME, refreshProjectContext, resolveConfig, type AdvisorOptions } from "./config.ts"
 import { activeClaimCount, isClaimOwner, releaseClaim, writeClaim } from "./claims.ts"
+import { createContextLineHook } from "./context-line.ts"
 import { AdvisorEngine, type AdvisorEvent, type EngineHost, type ModelRef, type NotifyInput, type PersistedCounters } from "./engine.ts"
 import { stamp } from "./format.ts"
 import { instanceClosed, instanceOpened } from "./instances.ts"
@@ -225,6 +226,26 @@ export default Plugin.define({
     // a reload that has not been disposed, loses to the newer claim instead of
     // reviewing the same sessions with its own state.
     writeClaim({ directory, instance })
+    // The prompt-time channel: one constant line in the agent's system prompt,
+    // registered only by the reviewing claim's owner. Measured on this host — the
+    // hook dispatches for an external plugin, is not awaited, and a synchronous
+    // push reaches the provider request — but the callback runs per provider
+    // request, so the line has to stay byte-identical to leave the prompt cache
+    // alone, and only one instance may add it.
+    if (config.contextLine) {
+      try {
+        await ctx.session.hook(
+          "context",
+          createContextLineHook({
+            isOwner: () => isClaimOwner({ directory, instance }),
+            isActive: (sessionID) => engine.advisoriesActive(sessionID),
+            onError: (err) => console.warn(`[advisor] context line failed: ${err.message}`),
+          }) as never,
+        )
+      } catch (err) {
+        console.warn(`[advisor] context line registration failed: ${(err as Error).message}`)
+      }
+    }
 
     // Pull-mode advice: an `advisor` tool the agent can call. The answer is the
     // tool's own result, which renders in OpenChamber's timeline — the one

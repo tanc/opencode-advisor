@@ -49,6 +49,11 @@ export interface AdvisorOptions {
   /** Deadline for a single reviewer model call, in milliseconds. */
   requestTimeoutMs?: number
   /**
+   * Add one standing line to the primary agent's system prompt, so an advisory
+   * that arrives after a final answer gets a restatement. Default true.
+   */
+  contextLine?: boolean
+  /**
    * Notify through OpenChamber when a note is delivered. `off` (default) never
    * notifies; `away` only while OpenChamber is unfocused; `always` notifies even
    * when it is in front. A `blocker` pages under `away` too, so critical
@@ -94,6 +99,8 @@ export interface AdvisorConfig {
   maxTranscriptChars: number
   /** Deadline for a single reviewer model call. */
   requestTimeoutMs: number
+  /** Add the standing context line to the agent's system prompt. */
+  contextLine: boolean
   /** How notes reach the user's notifications (OpenChamber only). */
   notify: "off" | "away" | "always"
   /** Blocks appended to every advisor system prompt (WATCHDOG.md content). */
@@ -178,6 +185,7 @@ export function resolveOptions(options: AdvisorOptions): Omit<AdvisorConfig, "ad
     sharedMaxNotesPerUpdate: maxNotesPerUpdate,
     immuneTurns: Math.max(0, num(options.immuneTurns ?? process.env.ADVISOR_IMMUNE_TURNS) ?? 3),
     includeThinking: bool(options.includeThinking) ?? envBool("ADVISOR_INCLUDE_THINKING") ?? true,
+    contextLine: bool(options.contextLine) ?? envBool("ADVISOR_CONTEXT_LINE") ?? true,
     // Three rounds is enough for a reviewer to check the specific claim it is
     // about to make; more rounds mostly buy latency, one model call each.
     maxToolRounds: Math.max(0, num(options.maxToolRounds) ?? 3),
@@ -550,6 +558,7 @@ export async function resolveConfig(
     maxToolRounds: base.maxToolRounds,
     maxTranscriptChars: base.maxTranscriptChars,
     requestTimeoutMs: base.requestTimeoutMs,
+    contextLine: base.contextLine,
     notify: base.notify,
     watchdogBlocks: discovered.watchdogBlocks,
     projectContext: discovered.projectContext,

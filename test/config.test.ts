@@ -147,6 +147,7 @@ describe("resolveConfig", () => {
       // are chosen together (see the comment in resolveConfig).
       expect(config.maxTranscriptChars).toBe(30_000)
       expect(config.requestTimeoutMs).toBe(90_000)
+      expect(config.contextLine).toBe(true)
     } finally {
       await fs.rm(empty, { recursive: true, force: true })
     }
