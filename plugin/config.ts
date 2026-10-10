@@ -42,9 +42,9 @@ export interface AdvisorOptions {
   includeThinking?: boolean
   /** Discover `WATCHDOG.*` files on disk. Default true. */
   discover?: boolean
-  /** Max tool rounds per review. Default 6. */
+  /** Max tool rounds per review. Default 3: more rounds mostly buy latency. */
   maxToolRounds?: number
-  /** Max characters of transcript sent per review. Default 60000. */
+  /** Max characters of transcript sent per review. Default 30000 (latency tracks this). */
   maxTranscriptChars?: number
   /** Deadline for a single reviewer model call, in milliseconds. */
   requestTimeoutMs?: number

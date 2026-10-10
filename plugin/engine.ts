@@ -757,22 +757,44 @@ export class AdvisorEngine {
       const delivery: "steer" | "queue" = channel === "steer" ? "steer" : "queue"
       // Only a steering note may wake an idle agent. A queued note rides the
       // running turn (streaming) or waits; a preserve note is a visible card.
-      const resume = channel === "steer"
       // The hint rides only a steered note on an already-answered turn. A queued
-      // or preserved note is read next turn, where the reader has the answer.
-      const closeOut = channel === "steer" && tailFinal
-      const text = formatAdvisoryBatch(group, advisor.name, closeOut)
-      const id = await this.#host.inject({
-        sessionID,
-        text,
-        description: channel === "preserve" ? "advisor note" : "advisor",
-        metadata: { advisor: { slug: advisor.slug, name: advisor.name, severities: group.map((n) => n.severity ?? "nit"), instance: this.#host.instance, raisedAt: Date.now() } },
-        delivery,
-        resume,
-      })
+      // or preserved note is read next turn, where the reader has the answer —
+      // and the text is built per attempt, so a steer that falls back to queue
+      // loses the hint with the delivery it actually gets.
+      const send = (to: "steer" | "queue") => {
+        const text = formatAdvisoryBatch(group, advisor.name, to === "steer" && tailFinal)
+        return this.#host.inject({
+          sessionID,
+          text,
+          description: channel === "preserve" ? "advisor note" : "advisor",
+          metadata: { advisor: { slug: advisor.slug, name: advisor.name, severities: group.map((n) => n.severity ?? "nit"), instance: this.#host.instance, raisedAt: Date.now() } },
+          delivery: to,
+          resume: to === "steer",
+        })
+      }
+      let id: string | undefined
+      try {
+        id = await send(delivery)
+      } catch (err) {
+        // One flaky injection must not drop a whole pass's notes: a failed steer
+        // is retried queued (nothing interrupted the agent, so `steered` stays
+        // false and the immune window is untouched), a failed queue/preserve is
+        // logged and left unrouted so a later pass can raise it again.
+        if (channel !== "steer") {
+          this.#host.log("warn", "advisor note was not delivered", { advisor: advisor.name, error: (err as Error).message })
+          return
+        }
+        this.#host.log("warn", "advisor steer failed; retrying queued", { advisor: advisor.name, error: (err as Error).message })
+        try {
+          id = await send("queue")
+        } catch (retryError) {
+          this.#host.log("warn", "advisor note was not delivered, even queued", { advisor: advisor.name, error: (retryError as Error).message })
+          return
+        }
+      }
       if (id) state.notesDelivered += group.length
       for (const note of group) guard.markRouted(note.note)
-      if (channel === "steer") steered = true
+      if (channel === "steer" && delivery === "steer" && id) steered = true
     }
 
     const deliveredBefore = state.notesDelivered

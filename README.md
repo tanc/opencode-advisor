@@ -441,7 +441,7 @@ Smoke-tested against **OpenCode v2.0.19** (the build OpenChamber ships) with
   plugin cannot set one per call, because the generate API takes `{ prompt, model }`
   only.
 
-154 unit/integration tests cover the emission guard, delivery routing, transcript
+156 unit/integration tests cover the emission guard, delivery routing, transcript
 rendering, read-only tools, configuration discovery, and the review loop
 (`bun test`).
 
@@ -457,7 +457,8 @@ rendering, read-only tools, configuration discovery, and the review loop
 
 ```sh
 bun install
-bun test        # 154 unit/integration tests
+bun test        # 156 unit/integration tests
+bun run mutate # 7 deliberate changes must each be caught by the suite
 bunx tsc --noEmit
 ```
 

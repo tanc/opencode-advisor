@@ -9,7 +9,8 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "mutate": "bun scripts/mutate.ts"
   },
   "dependencies": {
     "@opencode/plugin": "^2.0.19",

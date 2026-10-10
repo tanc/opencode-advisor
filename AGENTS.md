@@ -24,14 +24,16 @@ and does not dedupe, so the plugin would load twice.
 | `plugin/context-line.ts` | the one standing line pushed into the agent's system prompt |
 | `plugin/model.ts` | reviewer model selection: selector parsing and registry matching |
 | `plugin/prompts.ts` | the advisor system prompt, the JSON tool/notes protocol, and review-prompt assembly |
+| `scripts/mutate.ts` | mutation check: deliberate changes must be caught by the suite |
 | `plugin/transcript.ts` | session messages → one markdown delta |
 | `plugin/tools.ts` | `read` / `grep` / `glob`, executed by the plugin and jailed to the project directory |
-| `test/*.test.ts` | 154 tests, no network and no real model |
+| `test/*.test.ts` | 156 tests, no network and no real model |
 
 ## Commands
 
 ```bash
-bun test              # 154 tests
+bun test              # 156 tests
+bun run mutate       # 7 deliberate changes must each be caught by the suite
 bunx tsc --noEmit     # both must be green before any commit
 ```
 
@@ -64,6 +66,14 @@ bunx tsc --noEmit     # both must be green before any commit
 - **Delivery is `ctx.session.synthetic`** with `delivery: "steer" | "queue"` and
   `resume`. Notes carry `metadata.advisor`, and `isAdvisorMessage` makes the reviewer
   ignore its own output.
+  A failed injection does not drop the pass: a steer is retried queued, a
+  queue/preserve failure is logged and the note left *unrouted*, so a later pass can
+  raise it again. Considered and rejected: post-hoc delivery verification against the
+  inbox API (magic-context verifies admission in its own store). The returned id
+  already gates the counters, `SessionInput.admit` accepts any delivery and promotes a
+  pending steer on the next run, and zero losses were observed across the measured
+  sessions — an HTTP round trip per note would add a failure mode to the delivery
+  path to guard against one that has never occurred.
 - **Vocabulary.** A *step* is one model round; a *turn* (execution) is one user input
   through to idle. Both ends are "boundaries", debounced 350 ms, and each review sees
   only the messages since the previous pass.
@@ -123,7 +133,10 @@ bunx tsc --noEmit     # both must be green before any commit
     into a turn whose tail was a terminal answer carries an `advisory-closeout` line,
     so the agent ends with a complete restatement rather than leaving the answer
     buried above the exchange. A queued or preserved note does not: it is read at the
-    next turn boundary, where the reader has the answer already.
+    next turn boundary, where the reader has the answer already — and the standing
+    context line (invariant 17) instructs the restatement for any note after a final
+    answer, whichever channel it arrives by. That is why no per-note "what to do
+    next" copy was added: it would repeat the line on every note.
 17. **The prompt-time line is constant and single.** `plugin/context-line.ts` pushes
     one byte-identical line per request, only on a session whose advisor is on, and
     only from the reviewing claim's owner. Three properties force that shape: the

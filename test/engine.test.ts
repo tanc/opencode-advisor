@@ -32,6 +32,8 @@ interface FakeHost extends EngineHost {
   context?: { projectContext?: string; watchdogBlocks: string[]; warnings?: string[] }
   model?: ModelRef
   generateError?: string
+  /** The first N inject calls throw, to test delivery fallbacks. */
+  injectFailures?: number
   session?: { agent?: string; location?: { directory?: string } }
   agents?: { id: string; mode?: string; hidden?: boolean }[]
 }
@@ -63,6 +65,10 @@ function makeHost(directory: string, messages: SessionMessage[]): FakeHost {
       return host.responses.shift() ?? '{"notes":[]}'
     },
     async inject(input) {
+      if (host.injectFailures && host.injectFailures > 0) {
+        host.injectFailures -= 1
+        throw new Error("injection rejected")
+      }
       host.injections.push(input)
       return `msg_${host.injections.length}`
     },
@@ -963,6 +969,37 @@ describe("AdvisorEngine", () => {
 
     expect(host.injections[0]!.resume).toBe(false)
     expect(host.injections[0]!.text).not.toContain("advisory-closeout")
+    engine.dispose()
+  })
+
+  test("a failed steer injection falls back to queue and drops the close-out hint", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[{"severity":"concern","note":"The port is wrong"}]}')
+    host.injectFailures = 1
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    await engine.review("s1", true)
+
+    expect(host.injections).toHaveLength(1)
+    expect(host.injections[0]!.delivery).toBe("queue")
+    expect(host.injections[0]!.resume).toBe(false)
+    expect(host.injections[0]!.text).not.toContain("advisory-closeout")
+    expect(host.logs.some((l) => l.includes("retrying queued"))).toBe(true)
+    engine.dispose()
+  })
+
+  test("a failed queue delivery leaves the note unrouted for a later pass", async () => {
+    const host = makeHost("/repo", [user, terminal])
+    host.responses.push('{"notes":[{"severity":"concern","note":"The port is wrong"}]}')
+    host.injectFailures = 99
+    const engine = new AdvisorEngine(makeConfig(), host)
+
+    await engine.review("s1", false)
+
+    expect(host.injections).toHaveLength(0)
+    expect(host.logs.some((l) => l.includes("was not delivered"))).toBe(true)
+    // Nothing was delivered, so the counters must not claim otherwise.
+    expect(host.persisted.at(-1)?.notesDelivered ?? 0).toBe(0)
     engine.dispose()
   })
 })
