@@ -330,6 +330,7 @@ export default Plugin.define({
         description: "Toggle or inspect the advisor reviewer for this session",
         execute: async ({ sessionID, prompt }) => {
           const args = (prompt?.text ?? "").trim().toLowerCase()
+          const isDump = args === "dump"
           let body: string
           if (args === "on") {
             engine.setSessionEnabled(sessionID, true)
@@ -344,7 +345,6 @@ export default Plugin.define({
             body = `Advisor: ${engine.toggleSession(sessionID) ? "on" : "off"} for this session.`
           } else {
             const status = engine.status(sessionID)
-            const isDump = args === "dump"
             // Every card is stamped with the moment it was generated. Without it
             // a card from yesterday reads exactly like live state, because the
             // only time in it belongs to the last review, not to the card; the
@@ -386,10 +386,21 @@ export default Plugin.define({
             }
             body = lines.join("\n")
           }
-          // Delivered by the engine so a reply is steered into a running turn
-          // when possible, and never lost: the injection is guarded there rather
-          // than left to reject unhandled.
+          // Delivered always-queued (never steered: OpenChamber cannot render
+          // synthetics, so a steered reply is consumed by the running turn
+          // invisibly), and echoed through the notification channel — the one
+          // plugin→user surface OpenChamber does show — because the card itself
+          // never renders in the timeline.
           await engine.reply(sessionID, body)
+          if (!isDump || body.length < 1200) {
+            await postNotification({
+              title: isDump ? "Advisor advice" : "Advisor status",
+              body: body.replace(/\n+/g, " | ").slice(0, 300),
+              sessionID,
+              directory,
+              showWhenFocused: true,
+            }).catch((err) => console.warn(`[advisor] reply notification failed: ${(err as Error).message}`))
+          }
         },
       })
     })

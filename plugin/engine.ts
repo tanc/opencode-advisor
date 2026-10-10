@@ -260,16 +260,6 @@ export class AdvisorEngine {
   }
 
   /**
-   * How a command reply should be delivered. Queued synthetics drain at the next
-   * turn boundary, which can leave an answer sitting for twenty minutes during a
-   * long turn; while one is running, steer it in immediately instead. Never
-   * resumes: a reply must not start a turn of its own.
-   */
-  replyDelivery(sessionID: string): "steer" | "queue" {
-    return this.isStreaming(sessionID) ? "steer" : "queue"
-  }
-
-  /**
    * Deliver a command reply. Steering gets an answer into a running turn
    * immediately instead of parking it until the next boundary, but a turn can
    * end between that decision and the post, and a steer into a finished turn is
@@ -278,23 +268,14 @@ export class AdvisorEngine {
    */
   async reply(sessionID: string, text: string): Promise<void> {
     const metadata = { advisor: { kind: "command", instance: this.#host.instance, raisedAt: Date.now() } }
-    const channel = this.replyDelivery(sessionID)
     try {
-      await this.#host.inject({ sessionID, text, description: "advisor", metadata, delivery: channel, resume: false })
-      return
-    } catch (err) {
-      if (channel !== "steer") {
-        this.#host.log("warn", "advisor reply was not delivered", { sessionID, error: (err as Error).message })
-        return
-      }
-    }
-    try {
+      // Always queued, never steered: OpenChamber does not render synthetics, so a
+      // steered reply is consumed by the running turn invisibly — and this session
+      // is usually running, which made /advisor status vanish exactly when asked.
+      // A queued reply surfaces at the next turn boundary and in the inbox.
       await this.#host.inject({ sessionID, text, description: "advisor", metadata, delivery: "queue", resume: false })
-    } catch (retryError) {
-      this.#host.log("warn", "advisor reply was not delivered, even queued", {
-        sessionID,
-        error: (retryError as Error).message,
-      })
+    } catch (err) {
+      this.#host.log("warn", "advisor reply was not delivered", { sessionID, error: (err as Error).message })
     }
   }
 

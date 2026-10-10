@@ -811,36 +811,22 @@ describe("AdvisorEngine", () => {
     engine.dispose()
   })
 
-  test("command replies are queued when idle and immediate while streaming", async () => {
+  test("command replies are always queued, so OpenChamber can surface them", async () => {
     const host = makeHost("/repo", [user, terminal])
     host.responses.push('{"notes":[]}', '{"notes":[]}')
     const engine = new AdvisorEngine(makeConfig(), host)
-    expect(engine.replyDelivery("s1")).toBe("queue")
 
-    await engine.review("s1", true)
-    expect(engine.replyDelivery("s1")).toBe("steer")
-    engine.dispose()
-  })
-
-  test("a failed steer is resent queued rather than dropped", async () => {
-    const host = makeHost("/repo", [user, terminal])
-    host.responses.push('{"notes":[]}', '{"notes":[]}')
-    const engine = new AdvisorEngine(makeConfig(), host)
-    await engine.review("s1", true)
-    expect(engine.replyDelivery("s1")).toBe("steer")
-
-    const attempted: (string | undefined)[] = []
-    host.inject = async (input) => {
-      attempted.push(input.delivery)
-      if (input.delivery === "steer") throw new Error("steer rejected")
-      host.injections.push(input)
-      return "msg"
-    }
     await engine.reply("s1", "status text")
-
-    expect(attempted).toEqual(["steer", "queue"])
     expect(host.injections).toHaveLength(1)
     expect(host.injections[0]!.delivery).toBe("queue")
+    expect(host.injections[0]!.resume).toBe(false)
+
+    // Even mid-turn, when the old logic would have steered the reply into the
+    // running turn — invisible in OpenChamber, which is exactly what made
+    // /advisor status vanish while the session was active.
+    await engine.review("s1", true)
+    await engine.reply("s1", "status text")
+    expect(host.injections[1]!.delivery).toBe("queue")
     engine.dispose()
   })
 
