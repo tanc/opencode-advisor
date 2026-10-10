@@ -180,6 +180,11 @@ bunx tsc --noEmit     # both must be green before any commit
   secret; and read the in-hook "the callback ran" line before reading a negative as a
   result — a `pushed len=` line was once deleted unread, and a marker already present
   in the transcript produced a false positive that briefly reversed a conclusion.
+  A probe that logged the first 12 characters of its own token was not echo-free
+  either: `PROBE-` is six characters, so the "prefix" was the entire nonce. Of the
+  model-side negative runs only the second is defensibly clean, and the conclusion
+  finally rested on the later push-only wire test, which logged booleans and lengths
+  and never the token.
 
 ## Prompt and cache facts
 
