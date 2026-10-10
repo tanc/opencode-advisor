@@ -164,7 +164,8 @@ bunx tsc --noEmit     # both must be green before any commit
 - `ctx.session.hook(name, cb)` accepts a plain `async` callback and **does not validate
   the name**: a deliberately bogus name (`definitely-not-a-hook`) loads exactly like a
   real one, so a typo fails silently rather than loudly.
-- **The `"context"` hook is dispatch-and-forget, and its draft is live.** Measured on
+- **The `"context"` hook is dispatch-and-forget, and a synchronous `draft.system` push
+  reaches the request.** Measured on
   the app's bundled server: the callback receives `{sessionID, system[], messages[],
   options, model, agent, tools}` and runs once per provider request (per step); a 25 s
   sleep inside it delayed nothing, so the host does not await it; and a synchronous
@@ -176,6 +177,8 @@ bunx tsc --noEmit     # both must be green before any commit
   removed. The per-step cadence is why the one thing pushed there
   (`plugin/context-line.ts`) is a constant, byte-identical line, and why only the
   claim owner registers it.
+  Only `system` was tested: nothing here proves that mutating `messages` behaves the
+  same way, and no reader should infer it.
 - **Probe hygiene, learned twice the hard way.** Log a hash of a secret, never the
   secret; and read the in-hook "the callback ran" line before reading a negative as a
   result — a `pushed len=` line was once deleted unread, and a marker already present
